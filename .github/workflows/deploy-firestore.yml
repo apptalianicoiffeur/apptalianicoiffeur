@@ -1,0 +1,41 @@
+# Deploys the Firestore security rules and composite indexes to Firebase
+# whenever main is pushed. Requires these GitHub repository secrets:
+#
+#   FIREBASE_TOKEN        - created with:  npx firebase login:ci
+#   FIREBASE_PROJECT_ID   - your Firebase project id
+#
+# Alternative: replace the token with a service account (google-github/actions/auth)
+# if your organization prefers key files over CLI tokens.
+name: Deploy Firestore rules & indexes
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'firestore.rules'
+      - 'firestore.indexes.json'
+      - 'firebase.json'
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Firebase CLI
+        run: npm install -g firebase-tools
+
+      - name: Deploy rules and indexes
+        run: |
+          firebase deploy --only firestore:rules,firestore:indexes \
+            --project "${{ secrets.FIREBASE_PROJECT_ID }}" \
+            --non-interactive
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}

@@ -1,0 +1,226 @@
+rules_version = '2';
+
+// ============================================================================
+//  Taliani Coiffeur - Firestore security rules
+//
+//  >>>  IMPORTANT: change `ownerEmail()` below to the barber's Google email
+//       (it must match the VITE_OWNER_EMAIL value used by the frontend).
+//       The email MUST be written in lowercase.
+//
+//  Access summary
+//    - public  read : services, settings/public (hours + open/closed), dailyQueue
+//    - clients      : read/update only their OWN bookings and notifications,
+//                     create validated bookings (also as guest)
+//    - owner only   : dashboard data, services, settings, all bookings,
+//                     notifications for other users, dailyQueue
+// ============================================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ------------------------------------------------------------------
+    // Helpers
+    // ------------------------------------------------------------------
+    function ownerEmail() {
+      return 'owner@example.com'; // <=== CHANGE THIS to the barber's email
+    }
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isVerified() {
+      return request.auth.token.email_verified == true;
+    }
+
+    function isOwner() {
+      return signedIn() && isVerified()
+        && request.auth.token.email.lower() == ownerEmail().lower();
+    }
+
+    function isDate(value) {
+      return value is string && value.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$');
+    }
+
+    function isTime(value) {
+      return value is string && value.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$');
+    }
+
+    function isPhone(value) {
+      // Algerian numbers in international format: +213XXXXXXXXX
+      return value is string && value.matches('^\\+213[2-7][0-9]{7,8}$');
+    }
+
+    function isStatus(value) {
+      return value in ['pending', 'accepted', 'accepted_modified', 'declined',
+                       'cancelled', 'in_progress', 'completed', 'no_show'];
+    }
+
+    // ------------------------------------------------------------------
+    // users: { uid, name, email, phone, role, fcmToken, createdAt }
+    // ------------------------------------------------------------------
+    match /users/{uid} {
+      allow read: if isOwner() || (signedIn() && request.auth.uid == uid);
+
+      allow create: if signedIn()
+        && request.auth.uid == uid
+        && request.resource.data.uid == uid
+        && request.resource.data.role in ['client', 'owner']
+        // Only the configured owner email may hold the owner role.
+        && (request.resource.data.role == 'client' || isOwner())
+        && (request.resource.data.phone is string)
+        && (request.resource.data.fcmToken is string);
+
+      // Users may only touch their own contact / push fields (never their role);
+      // the owner may update any user.
+      allow update: if isOwner() || (signedIn()
+        && request.auth.uid == uid
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['name', 'phone', 'phoneAsked', 'fcmToken'])
+        && request.resource.data.role == resource.data.role);
+
+      allow delete: if false;
+    }
+
+    // ------------------------------------------------------------------
+    // services: public catalog (name, price, estimatedMinutes, image, active)
+    // ------------------------------------------------------------------
+    match /services/{serviceId} {
+      allow read: if true;
+
+      allow create, update: if isOwner()
+        && request.resource.data.name is string
+        && request.resource.data.name.size() >= 2
+        && request.resource.data.name.size() <= 60
+        && request.resource.data.price is number
+        && request.resource.data.price >= 0
+        && request.resource.data.estimatedMinutes is number
+        && request.resource.data.estimatedMinutes >= 5
+        && request.resource.data.estimatedMinutes <= 480
+        && request.resource.data.active is bool;
+
+      allow delete: if isOwner();
+    }
+
+    // ------------------------------------------------------------------
+    // bookings: the core collection (see README for the full data model)
+    // ------------------------------------------------------------------
+    match /bookings/{bookingId} {
+
+      function validBookingCreate() {
+        let d = request.resource.data;
+        return d.name is string
+          && d.name.size() >= 3
+          && d.name.size() <= 80
+          && isPhone(d.phone)
+          && d.serviceId is string
+          && d.serviceName is string
+          && d.price is number
+          && d.durationMinutes is number
+          && d.durationMinutes >= 5
+          && d.durationMinutes <= 480
+          && isDate(d.date)
+          && isTime(d.scheduledStart)
+          && isTime(d.scheduledEnd)
+          && isTime(d.expectedStart)
+          && isTime(d.expectedEnd)
+          && isStatus(d.status)
+          && d.status == 'pending'           // every new booking starts as pending
+          && d.source in ['online', 'walk_in', 'manual']
+          && d.notes is string
+          // A signed-in client can only book for themselves; guests book with null.
+          && (d.userId == null || (signedIn() && d.userId == request.auth.uid));
+      }
+
+      // Guests and clients create bookings (double booking is enforced by the
+      // Firestore transaction in the app; rules validate every field here).
+      // The owner may also insert walk-in/manual bookings directly as accepted.
+      allow create: if isOwner() || validBookingCreate();
+
+      // Clients can read only their own bookings; the owner reads everything.
+      allow read: if isOwner() || (signedIn() && resource.data.userId == request.auth.uid);
+
+      // Clients may change their own booking only through the supported flows:
+      //  - cancel it,
+      //  - confirm the barber's modified time (it becomes the booked time),
+      //  - refuse the modification (back to pending),
+      //  - propose another date/time (stays pending).
+      // Everything else (accept, decline, complete, no-show, reschedule...) is
+      // reserved for the owner.
+      allow update: if isOwner() || (signedIn()
+        && resource.data.userId == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+             'status', 'date', 'scheduledStart', 'scheduledEnd',
+             'expectedStart', 'expectedEnd', 'proposedDate', 'proposedTime',
+             'barberMessage', 'clientProposedDate', 'clientProposedTime', 'updatedAt'
+           ])
+        && (
+          (request.resource.data.status == 'cancelled'
+             && resource.data.status in ['pending', 'accepted', 'accepted_modified'])
+          || (request.resource.data.status == 'accepted'
+             && resource.data.status == 'accepted_modified'
+             && request.resource.data.proposedDate == null)
+          || (request.resource.data.status == 'pending'
+             && resource.data.status == 'accepted_modified')
+          || (request.resource.data.status == 'pending'
+             && resource.data.status == 'pending'
+             && request.resource.data.clientProposedDate != null)
+        ));
+
+      allow delete: if isOwner();
+    }
+
+    // ------------------------------------------------------------------
+    // notifications: in-app notification center (real-time via listeners)
+    // ------------------------------------------------------------------
+    match /notifications/{notificationId} {
+      allow read: if isOwner() || (signedIn() && resource.data.userId == request.auth.uid);
+
+      // Anyone (including a guest booking a slot) may notify another user,
+      // but never themselves.
+      allow create: if request.resource.data.userId is string
+        && request.resource.data.title is string
+        && request.resource.data.title.size() >= 2
+        && request.resource.data.title.size() <= 120
+        && request.resource.data.body is string
+        && request.resource.data.body.size() <= 500
+        && request.resource.data.read == false
+        && (!signedIn() || request.resource.data.userId != request.auth.uid);
+
+      allow update: if isOwner() || (signedIn()
+        && resource.data.userId == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']));
+
+      allow delete: if isOwner();
+    }
+
+    // ------------------------------------------------------------------
+    // settings/public: shop name, open/closed switch, weekly hours, breaks,
+    // days off, blocked slots, slot interval, advance/lead limits.
+    // ------------------------------------------------------------------
+    match /settings/public {
+      allow read: if true;      // clients need hours + status to book
+      allow write: if isOwner();
+    }
+
+    // settings/private: WhatsApp message templates (owner only).
+    match /settings/private {
+      allow read, write: if isOwner();
+    }
+
+    // ------------------------------------------------------------------
+    // dailyQueue/{date}: PII-free snapshot of the day's queue
+    // (bookingId, expectedStart, durationMinutes, status - no names/phones)
+    // so clients can see their live position without reading other bookings.
+    // ------------------------------------------------------------------
+    match /dailyQueue/{day} {
+      allow read: if true;
+      allow write: if isOwner();
+    }
+
+    // Default: deny everything else.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
