@@ -10,7 +10,7 @@
  * only happens through an explicit "pull forward" action by the barber.
  */
 import { ACTIVE_STATUSES } from './constants';
-import { timeToMin } from './datetime';
+import { addMinutes, timeToMin } from './datetime';
 
 /** Today's active queue, ordered by expected time (then by booked time). */
 export function todaysQueue(bookings, iso) {
@@ -64,18 +64,56 @@ export function cascadeShift(queue, fromIndex, delay, durationOf = (b) => b.dura
 
 /**
  * How much earlier the next client could be pulled into a gap.
- * Clamped so the client is never called before the previous session really ended.
+ * Clamped so the client is never called before the previous session really
+ * ended (`actualEndMin` = when the ended session actually finished).
  *
  * @returns {number} minutes the next client can move earlier (0 = cannot pull)
  */
-export function pullForwardAmount(queue, currentIndex, gap) {
-  if (gap <= 0) return 0;
-  const current = queue[currentIndex];
-  const next = queue[currentIndex + 1];
-  if (!current || !next) return 0;
-  const prevEnd = current.actualEnd ? timeToMin(current.actualEnd) : timeToMin(current.expectedEnd);
-  const nextStart = timeToMin(next.expectedStart);
+export function pullForwardAmount(gap, actualEndMin, nextBooking) {
+  if (gap <= 0 || !nextBooking) return 0;
+  const nextStart = timeToMin(nextBooking.expectedStart);
+  const prevEnd = Number.isFinite(actualEndMin) ? actualEndMin : nextStart;
   return Math.max(0, Math.min(gap, nextStart - prevEnd));
+}
+
+/**
+ * Busy intervals from a PII-free `dailyQueue/{date}` document.
+ * Clients read this public document to know which slots are already taken
+ * without being able to read other clients' bookings (privacy in rules).
+ *
+ * @param {object} daily the dailyQueue document (or null)
+ * @param {object} [options]
+ * @param {string} [options.ignoreBookingId] booking whose entry is skipped
+ * @returns {Array<{start: number, end: number}>} minutes since midnight
+ */
+export function busyFromQueue(daily, { ignoreBookingId = null } = {}) {
+  return (daily?.entries || [])
+    .filter((e) => ACTIVE_STATUSES.includes(e.status) && e.bookingId !== ignoreBookingId)
+    .map((e) => {
+      const start = timeToMin(e.expectedStart);
+      return { start, end: start + Number(e.durationMinutes || 30) };
+    });
+}
+
+/**
+ * Reshape dailyQueue entries into the booking objects `generateSlots`
+ * expects ({ id, date, status, expectedStart/End, scheduledStart/End }).
+ */
+export function queueEntriesAsBookings(daily, iso, { ignoreBookingId = null } = {}) {
+  return (daily?.entries || [])
+    .filter((e) => ACTIVE_STATUSES.includes(e.status) && e.bookingId !== ignoreBookingId)
+    .map((e) => {
+      const end = addMinutes(e.expectedStart, Number(e.durationMinutes || 30));
+      return {
+        id: e.bookingId,
+        date: iso,
+        status: e.status,
+        expectedStart: e.expectedStart,
+        expectedEnd: end,
+        scheduledStart: e.expectedStart,
+        scheduledEnd: end,
+      };
+    });
 }
 
 /** 1-based position of a booking inside the queue. */

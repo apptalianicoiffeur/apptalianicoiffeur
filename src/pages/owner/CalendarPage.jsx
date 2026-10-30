@@ -88,14 +88,28 @@ export default function CalendarPage() {
     const out = [];
     const breaks = getBreaksForDate(settings, date);
     const blocks = getBlocksForDate(settings, date);
-    for (let m = timeToMin(cfg.open); m < timeToMin(cfg.close); m += interval) {
+    const openMin = timeToMin(cfg.open);
+    for (let m = openMin; m < timeToMin(cfg.close); m += interval) {
       const time = minToTime(m);
-      const bookingsAt = visible.filter((b) => (b.expectedStart || b.scheduledStart) === time);
       const brk = breaks.find((x) => time >= x.start && time < x.end) || null;
       const blk = blocks.find((x) => time >= x.start && time < x.end) || null;
       const past = date < today || (date === today && m < nowMinutes());
-      out.push({ time, bookings: bookingsAt, brk, blk, past });
+      out.push({ time, bookings: [], brk, blk, past });
     }
+    // Assign every booking to the row that CONTAINS its start minute, so a
+    // delay/pull-forward that moved it off the grid (e.g. 14:12 with a
+    // 15-minute interval) still shows up instead of disappearing.
+    visible
+      .slice()
+      .sort(
+        (a, b) =>
+          timeToMin(a.expectedStart || a.scheduledStart) - timeToMin(b.expectedStart || b.scheduledStart)
+      )
+      .forEach((b) => {
+        const start = timeToMin(b.expectedStart || b.scheduledStart);
+        const idx = Math.min(Math.max(Math.floor((start - openMin) / interval), 0), out.length - 1);
+        if (out[idx]) out[idx].bookings.push(b);
+      });
     return out;
   }, [date, visible, cfg, breaksDep(settings, date), blocksDep(settings, date), interval, today]);
 

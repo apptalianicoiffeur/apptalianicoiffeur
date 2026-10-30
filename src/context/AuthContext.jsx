@@ -18,6 +18,8 @@ export function AuthProvider({ children }) {
   const [profile, setProfile] = useState(null); // users/{uid} document
   const [initializing, setInitializing] = useState(true);
   const [signingIn, setSigningIn] = useState(false);
+  // Set when the app must re-open the phone dialog (e.g. booking without a phone).
+  const [phonePrompt, setPhonePrompt] = useState(false);
 
   const isOwner = useMemo(
     () => Boolean(user?.email && OWNER_EMAIL && user.email.toLowerCase() === OWNER_EMAIL),
@@ -117,15 +119,20 @@ export function AuthProvider({ children }) {
       const phone = normalizePhone(input);
       if (!phone || !user) throw new Error('invalid phone');
       await updateDoc(doc(db, COLLECTIONS.USERS, user.uid), { phone, phoneAsked: true });
+      setPhonePrompt(false);
     },
     [user]
   );
 
   /** Remember that the phone dialog was skipped (it will not be asked again). */
   const skipPhoneAsk = useCallback(async () => {
+    setPhonePrompt(false);
     if (!user || !db) return;
     await updateDoc(doc(db, COLLECTIONS.USERS, user.uid), { phoneAsked: true }).catch(() => {});
   }, [user]);
+
+  /** Force the phone dialog open (used when a phone number is required). */
+  const askPhone = useCallback(() => setPhonePrompt(true), []);
 
   const value = useMemo(
     () => ({
@@ -138,10 +145,26 @@ export function AuthProvider({ children }) {
       signOut,
       savePhone,
       skipPhoneAsk,
-      // True for a Google user who never gave a phone number yet.
-      needsPhone: Boolean(user && profile && !profile.phone && !profile.phoneAsked && !isOwner),
+      askPhone,
+      // True for a Google user who never gave a phone number yet (or when the
+      // app explicitly re-asks through `askPhone`).
+      needsPhone: Boolean(
+        user && profile && !profile.phone && !isOwner && (phonePrompt || !profile.phoneAsked)
+      ),
     }),
-    [user, profile, initializing, signingIn, isOwner, signInWithGoogle, signOut, savePhone, skipPhoneAsk]
+    [
+      user,
+      profile,
+      initializing,
+      signingIn,
+      isOwner,
+      phonePrompt,
+      signInWithGoogle,
+      signOut,
+      savePhone,
+      skipPhoneAsk,
+      askPhone,
+    ]
   );
 
   return <AuthCtx.Provider value={value}>{children}</AuthCtx.Provider>;

@@ -37,7 +37,11 @@ export function ModifiedTimeModal({ open, onClose, booking, settings, onConfirm 
       setTime(booking?.proposedTime || '');
       setNote('');
     }
-  }, [open, booking]);
+    // Reset only when the modal opens (or for a different booking): Firestore
+    // snapshots deliver a fresh `booking` object on every change and would
+    // otherwise wipe what the owner is typing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, booking?.id]);
 
   const slots = useMemo(
     () =>
@@ -168,7 +172,10 @@ export function WalkInModal({ open, onClose, date, services, settings, prefillTi
       setTime(prefillTime || '');
       setErrors({});
     }
-  }, [open, prefillTime, services]);
+    // Reset only on the open transition: `services` is a new array on every
+    // snapshot and would clear the form while the owner is typing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, prefillTime]);
 
   const slots = useMemo(
     () =>

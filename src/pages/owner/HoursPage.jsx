@@ -3,8 +3,8 @@
  * specific days off, blocked slots, slot interval, max advance booking and
  * minimum lead time. Only these rules define what clients can book.
  */
-import { useEffect, useState } from 'react';
-import { Coffee, Lock, Plus, Save, Trash2 } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Coffee, Lock, Plus, RotateCcw, Save, Trash2 } from 'lucide-react';
 import t from '../../i18n/ar';
 import { useSettings } from '../../context/SettingsContext';
 import { useToast } from '../../context/ToastContext';
@@ -33,25 +33,36 @@ function TimeSelect({ value, onChange }) {
   );
 }
 
+/** Build an editable draft copy of the schedule settings. */
+function buildDraft(settings) {
+  return {
+    weeklyHours: JSON.parse(JSON.stringify(settings.weeklyHours || {})),
+    breaks: JSON.parse(JSON.stringify(settings.breaks || {})),
+    daysOff: [...(settings.daysOff || [])],
+    blockedSlots: [...(settings.blockedSlots || [])],
+    slotInterval: settings.slotInterval || 30,
+    maxAdvanceDays: settings.maxAdvanceDays || 14,
+    minLeadMinutes: settings.minLeadMinutes ?? 30,
+  };
+}
+
 export default function HoursPage() {
-  const { settings, savePublic } = useSettings();
+  const { settings, loading, savePublic } = useSettings();
   const { toast } = useToast();
   const [draft, setDraft] = useState(null);
   const [busy, setBusy] = useState(false);
   const [newDayOff, setNewDayOff] = useState('');
   const [block, setBlock] = useState({ date: todayISO(), start: '10:00', end: '11:00', reason: '' });
+  const initedRef = useRef(false);
 
+  // Initialize the draft ONCE when the real settings arrive: any later
+  // settings snapshot (open/closed toggle from the dashboard, ownerUid write...)
+  // must not discard what the owner is still editing here.
   useEffect(() => {
-    setDraft({
-      weeklyHours: JSON.parse(JSON.stringify(settings.weeklyHours || {})),
-      breaks: JSON.parse(JSON.stringify(settings.breaks || {})),
-      daysOff: [...(settings.daysOff || [])],
-      blockedSlots: [...(settings.blockedSlots || [])],
-      slotInterval: settings.slotInterval || 30,
-      maxAdvanceDays: settings.maxAdvanceDays || 14,
-      minLeadMinutes: settings.minLeadMinutes ?? 30,
-    });
-  }, [settings]);
+    if (loading || initedRef.current) return;
+    initedRef.current = true;
+    setDraft(buildDraft(settings));
+  }, [settings, loading]);
 
   if (!draft) return <FullSpinner />;
 
@@ -124,9 +135,18 @@ export default function HoursPage() {
     <div className="animate-fade-in max-w-2xl">
       <div className="flex items-center justify-between mb-1">
         <h1 className="text-xl sm:text-2xl font-black">{t.owner.hours}</h1>
-        <button className="btn-gold btn-sm" onClick={save} disabled={busy}>
-          {busy ? <Spinner size={14} /> : <Save size={14} />} {t.app.saveChanges}
-        </button>
+        <div className="flex gap-2">
+          <button
+            className="btn-outline btn-sm"
+            onClick={() => setDraft(buildDraft(settings))}
+            disabled={busy}
+          >
+            <RotateCcw size={14} /> {t.app.reset}
+          </button>
+          <button className="btn-gold btn-sm" onClick={save} disabled={busy}>
+            {busy ? <Spinner size={14} /> : <Save size={14} />} {t.app.saveChanges}
+          </button>
+        </div>
       </div>
       <p className="text-xs text-slate-400 mb-5">{t.owner.weeklyHoursHint}</p>
 

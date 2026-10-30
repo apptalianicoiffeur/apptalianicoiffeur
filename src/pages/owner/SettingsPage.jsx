@@ -94,7 +94,7 @@ export default function SettingsPage() {
         return;
       }
       await savePublic({ shopName: shop.shopName.trim(), phone, address: shop.address.trim() });
-      toast(t.app.saveChanges);
+      toast(t.app.saved);
     } catch {
       toast(t.errors.actionFailed, 'error');
     } finally {

@@ -70,6 +70,9 @@ export default function QueuePanel({ date, bookings, services, onChanged }) {
     guard(booking.id, async () => {
       const idx = queue.findIndex((b) => b.id === booking.id);
       const actualEndMin = nowMinutes();
+      // Remember the NEXT client by id: once this session completes it leaves
+      // the queue, so a stored index would point at the wrong booking later.
+      const nextId = queue[idx + 1]?.id || null;
       await ownerEndSession(booking);
 
       const gap = gapMinutes(booking, actualEndMin);
@@ -85,16 +88,22 @@ export default function QueuePanel({ date, bookings, services, onChanged }) {
         }
         setResult({ type: 'delay', delay, ended: booking, changes });
       } else if (gap > 0) {
-        setResult({ type: 'gap', gap, ended: booking, index: idx });
+        setResult({ type: 'gap', gap, ended: booking, actualEndMin, nextId });
       }
       onChanged?.();
     });
 
+  // The client who could be pulled into the gap (looked up live by id; they
+  // may have cancelled since, or the queue may have changed on another tab).
+  const gapNext = result?.type === 'gap' && !result.resolved ? queue.find((b) => b.id === result.nextId) : null;
+  const pullMinutes = gapNext ? pullForwardAmount(result.gap, result.actualEndMin, gapNext) : 0;
+  const nextStartPreview = gapNext ? minToTime(timeToMin(gapNext.expectedStart) - pullMinutes) : '';
+
   /** Pull the next client forward into the free gap (explicit approval). */
   const pullForward = () =>
     guard(result?.ended?.id, async () => {
-      const amount = pullForwardAmount(queue, result.index, result.gap);
-      const next = queue[result.index + 1];
+      const next = queue.find((b) => b.id === result.nextId);
+      const amount = next ? pullForwardAmount(result.gap, result.actualEndMin, next) : 0;
       if (!amount || !next) return;
       const newStart = minToTime(timeToMin(next.expectedStart) - amount);
       await ownerPullForward(next, newStart, settings);
@@ -102,17 +111,6 @@ export default function QueuePanel({ date, bookings, services, onChanged }) {
       setResult((r) => ({ ...r, resolved: true }));
       onChanged?.();
     });
-
-  const nextStartPreview =
-    result?.type === 'gap'
-      ? minToTime(timeToMin(queue[result.index + 1]?.expectedStart || '00:00') - pullForwardAmount(queue, result.index, result.gap))
-      : '';
-
-  if (queue.length === 0) {
-    return (
-      <EmptyState icon={Users} title={t.owner.queueEmpty} body={t.owner.queueHint} />
-    );
-  }
 
   return (
     <div>
@@ -149,7 +147,7 @@ export default function QueuePanel({ date, bookings, services, onChanged }) {
             <div className="flex flex-wrap gap-2 mt-3">
               <button
                 className="btn-outline btn-sm"
-                disabled={!queue[result.index + 1] || pullForwardAmount(queue, result.index, result.gap) === 0}
+                disabled={!gapNext || pullMinutes === 0}
                 onClick={pullForward}
               >
                 <Play size={13} /> {t.owner.pullForward}
@@ -194,6 +192,11 @@ export default function QueuePanel({ date, bookings, services, onChanged }) {
       )}
 
       {/* ---------------- Queue rows ---------------- */}
+      {queue.length === 0 ? (
+        /* The last session just ended: keep the gap banner (and its walk-in
+           action) visible instead of unmounting everything. */
+        <EmptyState icon={Users} title={t.owner.queueEmpty} body={t.owner.queueHint} />
+      ) : (
       <div className="space-y-2.5">
         {queue.map((b, idx) => {
           // Free time between the previous appointment's end and this one.
@@ -297,19 +300,13 @@ export default function QueuePanel({ date, bookings, services, onChanged }) {
                       <WhatsAppButton booking={b} templateKey="accept" />
                     </div>
                   )}
-
-                  {b.status === STATUS.COMPLETED && b.actualEnd && (
-                    <p className="text-[11px] text-slate-500">
-                      {b.actualStart} - {b.actualEnd} (
-                      {Math.max(0, timeToMin(b.actualEnd) - timeToMin(b.actualStart))} {t.app.minutes})
-                    </p>
-                  )}
                 </div>
               </div>
             </div>
           );
         })}
       </div>
+      )}
 
       <WalkInModal
         open={Boolean(walkIn)}

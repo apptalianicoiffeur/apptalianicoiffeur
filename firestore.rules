@@ -8,11 +8,13 @@ rules_version = '2';
 //       The email MUST be written in lowercase.
 //
 //  Access summary
-//    - public  read : services, settings/public (hours + open/closed), dailyQueue
+//    - public  read : services, settings/public (hours + open/closed),
+//                     dailyQueue (live queue + slot availability, PII-free)
 //    - clients      : read/update only their OWN bookings and notifications,
-//                     create validated bookings (also as guest)
+//                     create validated bookings (also as guest), append their
+//                     entry to dailyQueue during the booking transaction
 //    - owner only   : dashboard data, services, settings, all bookings,
-//                     notifications for other users, dailyQueue
+//                     notifications for other users, full dailyQueue control
 // ============================================================================
 
 service cloud.firestore {
@@ -209,13 +211,59 @@ service cloud.firestore {
     }
 
     // ------------------------------------------------------------------
-    // dailyQueue/{date}: PII-free snapshot of the day's queue
-    // (bookingId, expectedStart, durationMinutes, status - no names/phones)
-    // so clients can see their live position without reading other bookings.
+    // dailyQueue/{day}: PII-free snapshot of the day's queue
+    // (bookingId, expectedStart, durationMinutes, status - no names/phones).
+    //
+    // Clients read it for two things:
+    //   1. their own live queue position ("my bookings" page),
+    //   2. the day's AVAILABILITY (which slots are already busy) - this is
+    //      why the private `bookings` collection does not need a public list.
+    //
+    // Writes: the owner has full control (queue sync, cascade shifts,
+    // walk-ins). Everyone else - guests included - may only CREATE the day
+    // document with, or UPDATE it by appending, exactly ONE validated entry,
+    // which happens inside the same transaction that creates their booking.
+    // The barber's dashboard re-syncs the whole document from the bookings on
+    // every change, so cancelled/completed entries reconcile automatically.
     // ------------------------------------------------------------------
     match /dailyQueue/{day} {
+      function validQueueEntry(e) {
+        return e is map
+          && e.keys().hasOnly(['bookingId', 'expectedStart', 'durationMinutes', 'status'])
+          && e.bookingId is string
+          && e.bookingId.size() >= 1
+          && e.bookingId.size() <= 60
+          && isTime(e.expectedStart)
+          && e.durationMinutes is number
+          && e.durationMinutes >= 5
+          && e.durationMinutes <= 480
+          && isStatus(e.status);
+      }
+
+      function validQueueDoc(d) {
+        return d.keys().hasOnly(['date', 'entries', 'updatedAt'])
+          && d.date == day
+          && d.entries is list
+          && d.entries.size() >= 1
+          && d.entries.size() <= 60
+          && d.entries.every(e, validQueueEntry(e));
+      }
+
       allow read: if true;
+
+      // Owner: full control.
       allow write: if isOwner();
+
+      // A first booking of the day creates the document with its own entry.
+      allow create: if isDate(day) && validQueueDoc(request.resource.data)
+        && request.resource.data.entries.size() == 1;
+
+      // Anyone may APPEND exactly one entry (their new booking); nothing else
+      // in the document may change.
+      allow update: if isDate(day) && validQueueDoc(request.resource.data)
+        && resource.data.keys().hasOnly(['date', 'entries', 'updatedAt'])
+        && request.resource.data.entries.size() == resource.data.entries.size() + 1
+        && request.resource.data.entries.hasAll(resource.data.entries);
     }
 
     // Default: deny everything else.

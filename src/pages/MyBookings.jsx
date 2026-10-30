@@ -23,12 +23,14 @@ import { useCollection, useDocument } from '../hooks/useCollection';
 import { ACTIVE_STATUSES, STATUS, UPCOMING_STATUSES } from '../utils/constants';
 import { formatDateLong, timeToMin, todayISO } from '../utils/datetime';
 import { generateSlots } from '../utils/slots';
+import { queueEntriesAsBookings } from '../utils/queue';
 import {
   clientAcceptModification,
   clientCancelBooking,
   clientDeclineModification,
   clientProposeTime,
 } from '../services/bookingActions';
+import { SlotTakenError } from '../services/bookings';
 import { telLink } from '../utils/whatsapp';
 import DateStrip from '../components/DateStrip';
 import TimeSlotGrid from '../components/TimeSlotGrid';
@@ -91,10 +93,20 @@ function TodayQueueCard({ booking, daily }) {
 }
 
 /** Modal used by the client to propose another date/time. */
-function ProposeModal({ open, onClose, booking, settings, dayBookings, onConfirm }) {
+function ProposeModal({ open, onClose, booking, settings, onConfirm }) {
   const [date, setDate] = useState(booking?.date || todayISO());
   const [time, setTime] = useState('');
   const [busy, setBusy] = useState(false);
+
+  // Live availability of the chosen day from the public, PII-free queue doc.
+  const { data: daily } = useDocument(
+    () => (open && db ? doc(db, COLLECTIONS.DAILY_QUEUE, date) : null),
+    [open, date]
+  );
+  const dayBookings = useMemo(
+    () => queueEntriesAsBookings(daily, date, { ignoreBookingId: booking?.id }),
+    [daily, date, booking?.id]
+  );
 
   const slots = useMemo(
     () =>
@@ -145,7 +157,7 @@ function ProposeModal({ open, onClose, booking, settings, dayBookings, onConfirm
 }
 
 /** One booking card. */
-function BookingCard({ booking, settings, dayBookings }) {
+function BookingCard({ booking, settings }) {
   const { toast } = useToast();
   const [busy, setBusy] = useState(false);
   const [proposeOpen, setProposeOpen] = useState(false);
@@ -163,8 +175,8 @@ function BookingCard({ booking, settings, dayBookings }) {
     try {
       await fn();
       if (message) toast(message);
-    } catch {
-      toast(t.errors.actionFailed, 'error');
+    } catch (err) {
+      toast(err instanceof SlotTakenError ? t.booking.slotTaken : t.errors.actionFailed, 'error');
     } finally {
       setBusy(false);
     }
@@ -299,7 +311,6 @@ function BookingCard({ booking, settings, dayBookings }) {
         onClose={() => setProposeOpen(false)}
         booking={booking}
         settings={settings}
-        dayBookings={dayBookings}
         onConfirm={async (date, time) => {
           await run(() => clientProposeTime(booking, { date, time }, settings), t.myBookings.proposedSent);
           setProposeOpen(false);
@@ -379,7 +390,7 @@ export default function MyBookings() {
       ) : (
         <div className="grid gap-3">
           {list.map((b) => (
-            <BookingCard key={b.id} booking={b} settings={settings} dayBookings={bookings} />
+            <BookingCard key={b.id} booking={b} settings={settings} />
           ))}
         </div>
       )}

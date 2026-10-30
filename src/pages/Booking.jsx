@@ -1,23 +1,24 @@
 /**
  * Booking page (guest or logged-in client).
  * Service -> date -> time -> details -> confirm. Double booking is prevented
- * by a Firestore transaction on the client that re-reads the whole day.
+ * by a Firestore transaction against the public PII-free queue document.
  */
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { CheckCircle2, Scissors, ShoppingBag } from 'lucide-react';
-import { collection, query, where } from 'firebase/firestore';
+import { doc } from 'firebase/firestore';
 import t from '../i18n/ar';
 import { db, COLLECTIONS } from '../services/bootstrap';
 import { useAuth } from '../context/AuthContext';
 import { useSettings } from '../context/SettingsContext';
 import { useToast } from '../context/ToastContext';
-import { useCollection } from '../hooks/useCollection';
+import { useDocument } from '../hooks/useCollection';
 import { useServices } from '../hooks/useServices';
 import { STATUS } from '../utils/constants';
 import { addMinutes, formatDateLong, todayISO } from '../utils/datetime';
 import { DEFAULT_COUNTRY_CODE, normalizePhone } from '../utils/phone';
 import { dayUnbookableReason, generateSlots } from '../utils/slots';
+import { queueEntriesAsBookings } from '../utils/queue';
 import { createBookingWithCheck, SlotTakenError } from '../services/bookings';
 import ServiceCard from '../components/ServiceCard';
 import DateStrip from '../components/DateStrip';
@@ -27,7 +28,7 @@ import { GoogleIcon, ShopStatusBadge } from '../components/shared';
 
 export default function Booking() {
   const { settings } = useSettings();
-  const { user, profile } = useAuth();
+  const { user, profile, askPhone } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
 
@@ -55,11 +56,15 @@ export default function Booking() {
   // Reset the time whenever service/date changes.
   useEffect(() => setTime(''), [service?.id, date]);
 
-  // Bookings of the selected day (real time -> slots free up instantly).
-  const { data: dayBookings } = useCollection(
-    () => (db && date ? query(collection(db, COLLECTIONS.BOOKINGS), where('date', '==', date)) : null),
+  // Live PII-free queue of the selected day (public document): it tells us
+  // which slots are already busy without exposing other clients' bookings.
+  // Real time -> slots free up instantly when someone cancels or the barber
+  // rebuilds the queue.
+  const { data: dailyQueue } = useDocument(
+    () => (db && date ? doc(db, COLLECTIONS.DAILY_QUEUE, date) : null),
     [date]
   );
+  const dayBookings = useMemo(() => queueEntriesAsBookings(dailyQueue, date), [dailyQueue, date]);
 
   const slots = useMemo(() => {
     if (!service) return [];
@@ -97,10 +102,20 @@ export default function Booking() {
 
   const submit = async () => {
     if (!validate()) return;
+    // A signed-in client must have a saved phone number (the security rules
+    // reject bookings without one) -> ask for it instead of failing opaquely.
+    const profilePhone = user ? normalizePhone(profile?.phone || '') : null;
+    if (user && !profilePhone) {
+      toast(t.auth.phoneNeededForBooking, 'error');
+      askPhone();
+      return;
+    }
     setSubmitting(true);
     try {
-      const phoneE164 =
-        normalizePhone(phone) || normalizePhone(`${DEFAULT_COUNTRY_CODE}${String(phone).replace(/^0/, '')}`);
+      const phoneE164 = user
+        ? profilePhone
+        : normalizePhone(phone) ||
+          normalizePhone(`${DEFAULT_COUNTRY_CODE}${String(phone).replace(/^0/, '')}`);
       const scheduledEnd = addMinutes(time, service.estimatedMinutes);
       const id = await createBookingWithCheck({
         userId: user?.uid || null,

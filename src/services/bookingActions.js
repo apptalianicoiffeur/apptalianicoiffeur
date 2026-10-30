@@ -13,7 +13,7 @@ import { db, COLLECTIONS } from './bootstrap';
 import { STATUS } from '../utils/constants';
 import { addMinutes, formatDateLong } from '../utils/datetime';
 import { fillTemplate, templateVars } from '../utils/whatsapp';
-import { createBookingWithCheck, updateBooking } from './bookings';
+import { createBookingWithCheck, updateBooking, assertSlotFree } from './bookings';
 import { createNotification } from './notifications';
 import { sendPushToToken } from './push';
 import t from '../i18n/ar';
@@ -108,6 +108,9 @@ export async function clientDeclineModification(booking, settings) {
 
 /** Propose another date/time to the barber (booking stays pending). */
 export async function clientProposeTime(booking, { date, time }, settings) {
+  // The proposed slot must really be free (checked against the public queue
+  // document), otherwise the barber would accept an impossible time.
+  await assertSlotFree(date, time, booking.durationMinutes || 30, booking.id);
   await updateBooking(booking.id, {
     status: STATUS.PENDING,
     clientProposedDate: date,
@@ -242,7 +245,8 @@ export async function ownerApplyShift(changes, settings) {
       body: fill(t.notifications.timeShiftedBody, {
         ...vars,
         time: change.newStart,
-        old_time: b.expectedStart,
+        oldTime: b.expectedStart,
+        old_time: b.expectedStart, // WhatsApp template placeholder
       }),
     });
   }

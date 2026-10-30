@@ -1,13 +1,16 @@
 /**
  * Booking persistence helpers.
  * Double booking is prevented inside a Firestore transaction: the client
- * re-reads the whole day and refuses to write when the slot overlaps another
- * active booking. (The security rules additionally validate every field.)
+ * re-reads the day's PII-free queue document (`dailyQueue/{date}`, public by
+ * the security rules) and refuses to write when the slot overlaps another
+ * active booking. The same document is then appended with the new entry, so
+ * every other visitor sees the slot as taken in real time.
+ * (The security rules additionally validate every field.)
  */
 import {
-  addDoc,
   collection,
   doc,
+  getDoc,
   getDocs,
   orderBy,
   query,
@@ -17,8 +20,9 @@ import {
   where,
 } from 'firebase/firestore';
 import { db, COLLECTIONS } from './bootstrap';
-import { ACTIVE_STATUSES, STATUS } from '../utils/constants';
+import { STATUS } from '../utils/constants';
 import { timeToMin } from '../utils/datetime';
+import { busyFromQueue } from '../utils/queue';
 
 /** Thrown when the chosen slot was taken by someone else a moment before. */
 export class SlotTakenError extends Error {
@@ -40,23 +44,21 @@ function makeCode() {
 
 /**
  * Create a booking inside a transaction with a double-booking check.
+ * The overlap check and the availability shown in the UI both read the
+ * public `dailyQueue/{date}` document instead of the private bookings.
  * @param {object} payload booking fields (see README data model)
  * @returns {Promise<string>} the new booking id
  */
 export async function createBookingWithCheck(payload) {
-  const ref = await runTransaction(db, async (tx) => {
-    const dayQuery = query(bookingsCol(), where('date', '==', payload.date));
-    const snap = await tx.get(dayQuery);
-    const start = timeToMin(payload.scheduledStart);
-    const end = start + Number(payload.durationMinutes || 30);
+  const start = timeToMin(payload.scheduledStart);
+  const end = start + Number(payload.durationMinutes || 30);
 
-    const conflict = snap.docs.some((d) => {
-      const b = d.data();
-      if (!ACTIVE_STATUSES.includes(b.status)) return false;
-      const bStart = timeToMin(b.expectedStart || b.scheduledStart);
-      const bEnd = timeToMin(b.expectedEnd || b.scheduledEnd);
-      return start < bEnd && bStart < end;
-    });
+  const ref = await runTransaction(db, async (tx) => {
+    const queueRef = doc(db, COLLECTIONS.DAILY_QUEUE, payload.date);
+    const queueSnap = await tx.get(queueRef);
+    const entries = queueSnap.exists() ? queueSnap.data().entries || [] : [];
+
+    const conflict = busyFromQueue({ entries }).some((b) => start < b.end && b.start < end);
     if (conflict) throw new SlotTakenError();
 
     const newRef = doc(bookingsCol());
@@ -66,9 +68,42 @@ export async function createBookingWithCheck(payload) {
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
+    // Append exactly one entry (the rules allow clients to append one only).
+    tx.set(
+      queueRef,
+      {
+        date: payload.date,
+        entries: [
+          ...entries,
+          {
+            bookingId: newRef.id,
+            expectedStart: payload.expectedStart || payload.scheduledStart,
+            durationMinutes: Number(payload.durationMinutes || 30),
+            status: payload.status,
+          },
+        ],
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    );
     return newRef;
   });
   return ref.id;
+}
+
+/**
+ * Throw SlotTakenError when a time on a date overlaps an active entry of the
+ * public queue document (used before accepting a client's time proposal).
+ */
+export async function assertSlotFree(date, time, durationMinutes, ignoreBookingId = null) {
+  const snap = await getDoc(doc(db, COLLECTIONS.DAILY_QUEUE, date));
+  const entries = snap.exists() ? snap.data().entries || [] : [];
+  const start = timeToMin(time);
+  const end = start + Number(durationMinutes || 30);
+  const conflict = busyFromQueue({ entries }, { ignoreBookingId }).some(
+    (b) => start < b.end && b.start < end
+  );
+  if (conflict) throw new SlotTakenError();
 }
 
 /** Patch fields on a booking (adds `updatedAt`). */

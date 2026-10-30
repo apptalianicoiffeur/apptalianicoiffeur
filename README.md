@@ -289,7 +289,7 @@ git push -u origin main
 | `notifications` | auto-id | `userId, bookingId, title, body, read, createdAt` |
 | `settings/public` | ثابت | `shopOpen, shopName, phone, address, ownerUid, weeklyHours, breaks, daysOff, blockedSlots, slotInterval, maxAdvanceDays, minLeadMinutes, soundAlerts` |
 | `settings/private` | ثابت | `whatsappTemplates { accept, decline, acceptModified, delay }` |
-| `dailyQueue/{date}` | ثابت | `date, entries: [{ bookingId, expectedStart, durationMinutes, status }]` — **بدون أسماء أو هواتف**، حتى يرى الزبون ترتيبه دون قراءة حجوزات الآخرين |
+| `dailyQueue/{date}` | ثابت | `date, entries: [{ bookingId, expectedStart, durationMinutes, status }]` — **بدون أسماء أو هواتف**، حتى يرى الزبون ترتيبه ويعرف الأوقات المشغولة دون قراءة حجوزات الآخرين (يُضاف إليها مدخل الزبون نفسه داخل نفس معاملة الحجز) |
 
 **حالات الحجز**: `pending` (قيد الانتظار) ← `accepted` (مقبول) /
 `accepted_modified` (مقبول بتعديل الوقت، يحتاج تأكيد الزبون) ← `in_progress` (قيد التنفيذ)
@@ -309,8 +309,11 @@ git push -u origin main
 - **الزبائن** يقرؤون ويعدّلون مستنداتهم فقط، ويمكنهم فقط الإلغاء أو الرد على تعديل الوقت
   (الانتقالات المسموحة محددة حقل بحقل).
 - **منع الحجز المزدوج** مفروض عبر معاملة (Transaction) في
-  `src/services/bookings.js` تعيد قراءة اليوم كاملاً وترفض أي تداخل مع حجز نشط؛ والقواعد
-  تتحقق أيضاً من كل حقل مكتوب.
+  `src/services/bookings.js` تقرأ مستند اليوم من `dailyQueue` (عام وخالٍ من البيانات
+  الشخصية) وترفض أي تداخل؛ عند النجاح تُنشأ الحجز **ويُضاف مدخل واحد فقط** إلى
+  `dailyQueue` — القواعد تسمح للزبون بإضافة مدخل واحد مُتحقَّق منه فقط، ولا تسمح بقراءة
+  أو تعديل حجوزات الآخرين. لوحة تحكم الحلاق تعيد مزامنة المستند كاملاً مع كل تغيير،
+  فتتولى الإلغاءات والمكتملات تلقائياً.
 - أرقام الهاتف تُتحقق على ثلاث مستويات: الواجهة (`src/utils/phone.js`)، وطبقة الخدمة،
   وتعبير القواعد Regex.
 
