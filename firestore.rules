@@ -24,7 +24,7 @@ service cloud.firestore {
     // Helpers
     // ------------------------------------------------------------------
     function ownerEmail() {
-      return 'owner@example.com'; // <=== CHANGE THIS to the barber's email
+      return 'app.taliani.coiffeur@gmail.com'; // <=== CHANGE THIS to the barber's email
     }
 
     function signedIn() {

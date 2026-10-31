@@ -1,5 +1,7 @@
 {
   "projects": {
-    "default": "YOUR_FIREBASE_PROJECT_ID"
-  }
+    "default": "apptalianicoiffeur-43cf3"
+  },
+  "targets": {},
+  "etags": {}
 }
