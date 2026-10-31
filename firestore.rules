@@ -1,30 +1,15 @@
-rules_version = '2';
 
-// ============================================================================
-//  Taliani Coiffeur - Firestore security rules
-//
-//  >>>  IMPORTANT: change `ownerEmail()` below to the barber's Google email
-//       (it must match the VITE_OWNER_EMAIL value used by the frontend).
-//       The email MUST be written in lowercase.
-//
-//  Access summary
-//    - public  read : services, settings/public (hours + open/closed),
-//                     dailyQueue (live queue + slot availability, PII-free)
-//    - clients      : read/update only their OWN bookings and notifications,
-//                     create validated bookings (also as guest), append their
-//                     entry to dailyQueue during the booking transaction
-//    - owner only   : dashboard data, services, settings, all bookings,
-//                     notifications for other users, full dailyQueue control
-// ============================================================================
+rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // ------------------------------------------------------------------
-    // Helpers
-    // ------------------------------------------------------------------
+    // ============================================================
+    // 1. إعدادات المالك والمساعدات العامة
+    // ============================================================
+
     function ownerEmail() {
-      return 'app.taliani.coiffeur@gmail.com'; // <=== CHANGE THIS to the barber's email
+      return 'app.taliani.coiffeur@gmail.com';
     }
 
     function signedIn() {
@@ -32,62 +17,95 @@ service cloud.firestore {
     }
 
     function isVerified() {
-      return request.auth.token.email_verified == true;
+      return signedIn()
+        && request.auth.token.email_verified == true;
     }
 
     function isOwner() {
-      return signedIn() && isVerified()
+      return isVerified()
+        && request.auth.token.email is string
         && request.auth.token.email.lower() == ownerEmail().lower();
     }
 
     function isDate(value) {
-      return value is string && value.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$');
+      return value is string
+        && value.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$');
     }
 
     function isTime(value) {
-      return value is string && value.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$');
+      return value is string
+        && value.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$');
     }
 
     function isPhone(value) {
-      // Algerian numbers in international format: +213XXXXXXXXX
-      return value is string && value.matches('^\\+213[2-7][0-9]{7,8}$');
+      return value is string
+        && value.matches('^\\+213[2-7][0-9]{7,8}$');
     }
 
     function isStatus(value) {
-      return value in ['pending', 'accepted', 'accepted_modified', 'declined',
-                       'cancelled', 'in_progress', 'completed', 'no_show'];
+      return value in [
+        'pending',
+        'accepted',
+        'accepted_modified',
+        'declined',
+        'cancelled',
+        'in_progress',
+        'completed',
+        'no_show'
+      ];
     }
 
-    // ------------------------------------------------------------------
-    // users: { uid, name, email, phone, role, fcmToken, createdAt }
-    // ------------------------------------------------------------------
+    function isSource(value) {
+      return value in ['online', 'walk_in', 'manual'];
+    }
+
+    // ============================================================
+    // 2. المستخدمون
+    // ============================================================
+
     match /users/{uid} {
-      allow read: if isOwner() || (signedIn() && request.auth.uid == uid);
+
+      allow read: if isOwner()
+        || (signedIn() && request.auth.uid == uid);
 
       allow create: if signedIn()
         && request.auth.uid == uid
         && request.resource.data.uid == uid
         && request.resource.data.role in ['client', 'owner']
-        // Only the configured owner email may hold the owner role.
-        && (request.resource.data.role == 'client' || isOwner())
-        && (request.resource.data.phone is string)
-        && (request.resource.data.fcmToken is string);
+        && (
+          request.resource.data.role == 'client'
+          || isOwner()
+        )
+        && request.resource.data.phone is string
+        && request.resource.data.fcmToken is string;
 
-      // Users may only touch their own contact / push fields (never their role);
-      // the owner may update any user.
-      allow update: if isOwner() || (signedIn()
-        && request.auth.uid == uid
-        && request.resource.data.diff(resource.data).affectedKeys()
-             .hasOnly(['name', 'phone', 'phoneAsked', 'fcmToken'])
-        && request.resource.data.role == resource.data.role);
+      allow update: if isOwner()
+        || (
+          signedIn()
+          && request.auth.uid == uid
+          && request.resource.data.diff(resource.data)
+               .affectedKeys()
+               .hasOnly([
+                 'name',
+                 'phone',
+                 'phoneAsked',
+                 'fcmToken'
+               ])
+          && request.resource.data.role == resource.data.role
+          && request.resource.data.name is string
+          && request.resource.data.phone is string
+          && request.resource.data.fcmToken is string
+        );
 
       allow delete: if false;
     }
 
-    // ------------------------------------------------------------------
-    // services: public catalog (name, price, estimatedMinutes, image, active)
-    // ------------------------------------------------------------------
+    // ============================================================
+    // 3. الخدمات
+    // ============================================================
+
     match /services/{serviceId} {
+
       allow read: if true;
 
       allow create, update: if isOwner()
@@ -104,169 +122,413 @@ service cloud.firestore {
       allow delete: if isOwner();
     }
 
-    // ------------------------------------------------------------------
-    // bookings: the core collection (see README for the full data model)
-    // ------------------------------------------------------------------
+    // ============================================================
+    // 4. مساعدات الحجوزات
+    // ============================================================
+
+    function validBookingFields(d) {
+      return d.keys().hasAll([
+          'name',
+          'phone',
+          'serviceId',
+          'serviceName',
+          'price',
+          'durationMinutes',
+          'date',
+          'scheduledStart',
+          'scheduledEnd',
+          'expectedStart',
+          'expectedEnd',
+          'status',
+          'source',
+          'notes'
+        ])
+
+        && d.name is string
+        && d.name.size() >= 3
+        && d.name.size() <= 80
+
+        && isPhone(d.phone)
+
+        && d.serviceId is string
+        && d.serviceId.size() > 0
+
+        && d.serviceName is string
+        && d.serviceName.size() >= 2
+
+        && d.price is number
+        && d.price >= 0
+
+        && d.durationMinutes is number
+        && d.durationMinutes >= 5
+        && d.durationMinutes <= 480
+
+        && isDate(d.date)
+        && isTime(d.scheduledStart)
+        && isTime(d.scheduledEnd)
+        && isTime(d.expectedStart)
+        && isTime(d.expectedEnd)
+
+        && isStatus(d.status)
+        && isSource(d.source)
+
+        && d.notes is string
+
+        && (
+          !('userId' in d)
+          || d.userId == null
+          || (
+            signedIn()
+            && d.userId == request.auth.uid
+          )
+        );
+    }
+
+    // مطابقة السعر والمدة واسم الخدمة مع بيانات الخدمة المخزنة.
+    function matchesService(d, requireActive) {
+      let servicePath = /databases/$(database)/documents/services/$(d.serviceId);
+
+      return exists(servicePath)
+        && get(servicePath).data.name == d.serviceName
+        && get(servicePath).data.price == d.price
+        && get(servicePath).data.estimatedMinutes == d.durationMinutes
+        && (
+          !requireActive
+          || get(servicePath).data.active == true
+        );
+    }
+
+    // ============================================================
+    // 5. التحقق من إضافة الحجز إلى الطابور في نفس المعاملة
+    // ============================================================
+
+    function bookingHasQueueEntryAfter(bookingId, d) {
+      let queuePath = /databases/$(database)/documents/dailyQueue/$(d.date);
+
+      return existsAfter(queuePath)
+
+        && getAfter(queuePath).data.date == d.date
+
+        && getAfter(queuePath).data.entries is list
+
+        && getAfter(queuePath).data.entries.size() > 0
+
+        && getAfter(queuePath).data.entries[
+          getAfter(queuePath).data.entries.size() - 1
+        ].bookingId == bookingId
+
+        && getAfter(queuePath).data.entries[
+          getAfter(queuePath).data.entries.size() - 1
+        ].expectedStart == d.expectedStart
+
+        && getAfter(queuePath).data.entries[
+          getAfter(queuePath).data.entries.size() - 1
+        ].durationMinutes == d.durationMinutes
+
+        && getAfter(queuePath).data.entries[
+          getAfter(queuePath).data.entries.size() - 1
+        ].status == d.status;
+    }
+
+    // ============================================================
+    // 6. الحجوزات
+    // ============================================================
+
     match /bookings/{bookingId} {
 
-      function validBookingCreate() {
+      // حجز جديد من الزبون أو الزائر.
+      function validOnlineBooking() {
         let d = request.resource.data;
-        return d.name is string
-          && d.name.size() >= 3
-          && d.name.size() <= 80
-          && isPhone(d.phone)
-          && d.serviceId is string
-          && d.serviceName is string
-          && d.price is number
-          && d.durationMinutes is number
-          && d.durationMinutes >= 5
-          && d.durationMinutes <= 480
-          && isDate(d.date)
-          && isTime(d.scheduledStart)
-          && isTime(d.scheduledEnd)
-          && isTime(d.expectedStart)
-          && isTime(d.expectedEnd)
-          && isStatus(d.status)
-          && d.status == 'pending'           // every new booking starts as pending
-          && d.source in ['online', 'walk_in', 'manual']
-          && d.notes is string
-          // A signed-in client can only book for themselves; guests book with null.
-          && (d.userId == null || (signedIn() && d.userId == request.auth.uid));
+
+        return validBookingFields(d)
+
+          && d.status == 'pending'
+          && d.source == 'online'
+
+          && matchesService(d, true)
+
+          && (
+            d.userId == null
+            || (
+              signedIn()
+              && d.userId == request.auth.uid
+            )
+          )
+
+          && bookingHasQueueEntryAfter(bookingId, d);
       }
 
-      // Guests and clients create bookings (double booking is enforced by the
-      // Firestore transaction in the app; rules validate every field here).
-      // The owner may also insert walk-in/manual bookings directly as accepted.
-      allow create: if isOwner() || validBookingCreate();
+      // حجز ينشئه المالك من لوحة التحكم.
+      function validOwnerBooking() {
+        let d = request.resource.data;
 
-      // Clients can read only their own bookings; the owner reads everything.
-      allow read: if isOwner() || (signedIn() && resource.data.userId == request.auth.uid);
+        return validBookingFields(d)
+          && matchesService(d, false);
+      }
 
-      // Clients may change their own booking only through the supported flows:
-      //  - cancel it,
-      //  - confirm the barber's modified time (it becomes the booked time),
-      //  - refuse the modification (back to pending),
-      //  - propose another date/time (stays pending).
-      // Everything else (accept, decline, complete, no-show, reschedule...) is
-      // reserved for the owner.
-      allow update: if isOwner() || (signedIn()
-        && resource.data.userId == request.auth.uid
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-             'status', 'date', 'scheduledStart', 'scheduledEnd',
-             'expectedStart', 'expectedEnd', 'proposedDate', 'proposedTime',
-             'barberMessage', 'clientProposedDate', 'clientProposedTime', 'updatedAt'
-           ])
-        && (
-          (request.resource.data.status == 'cancelled'
-             && resource.data.status in ['pending', 'accepted', 'accepted_modified'])
-          || (request.resource.data.status == 'accepted'
-             && resource.data.status == 'accepted_modified'
-             && request.resource.data.proposedDate == null)
-          || (request.resource.data.status == 'pending'
-             && resource.data.status == 'accepted_modified')
-          || (request.resource.data.status == 'pending'
-             && resource.data.status == 'pending'
-             && request.resource.data.clientProposedDate != null)
-        ));
+      allow create: if (
+        isOwner()
+        && validOwnerBooking()
+      ) || validOnlineBooking();
+
+      // المالك يرى كل الحجوزات، والزبون يرى حجوزاته فقط.
+      allow read: if isOwner()
+        || (
+          signedIn()
+          && resource.data.userId == request.auth.uid
+        );
+
+      // تعديل الحجوزات من طرف المالك أو الزبون وفق الحالات المسموحة.
+      allow update: if isOwner()
+
+        || (
+          signedIn()
+
+          && resource.data.userId == request.auth.uid
+
+          && request.resource.data.diff(resource.data)
+               .affectedKeys()
+               .hasOnly([
+                 'status',
+                 'date',
+                 'scheduledStart',
+                 'scheduledEnd',
+                 'expectedStart',
+                 'expectedEnd',
+                 'proposedDate',
+                 'proposedTime',
+                 'barberMessage',
+                 'clientProposedDate',
+                 'clientProposedTime',
+                 'updatedAt'
+               ])
+
+          && (
+
+            // إلغاء الحجز.
+            (
+              request.resource.data.status == 'cancelled'
+              && resource.data.status in [
+                'pending',
+                'accepted',
+                'accepted_modified'
+              ]
+            )
+
+            ||
+
+            // قبول التوقيت المعدل من الحلاق.
+            (
+              request.resource.data.status == 'accepted'
+              && resource.data.status == 'accepted_modified'
+              && request.resource.data.proposedDate == null
+            )
+
+            ||
+
+            // رفض التوقيت المعدل.
+            (
+              request.resource.data.status == 'pending'
+              && resource.data.status == 'accepted_modified'
+            )
+
+            ||
+
+            // اقتراح موعد جديد من الزبون.
+            (
+              request.resource.data.status == 'pending'
+              && resource.data.status == 'pending'
+              && request.resource.data.clientProposedDate is string
+              && request.resource.data.clientProposedTime is string
+            )
+          )
+        );
 
       allow delete: if isOwner();
     }
 
-    // ------------------------------------------------------------------
-    // notifications: in-app notification center (real-time via listeners)
-    // ------------------------------------------------------------------
-    match /notifications/{notificationId} {
-      allow read: if isOwner() || (signedIn() && resource.data.userId == request.auth.uid);
+    // ============================================================
+    // 7. الإشعارات
+    // ============================================================
 
-      // Anyone (including a guest booking a slot) may notify another user,
-      // but never themselves.
-      allow create: if request.resource.data.userId is string
+    match /notifications/{notificationId} {
+
+      allow read: if isOwner()
+        || (
+          signedIn()
+          && resource.data.userId == request.auth.uid
+        );
+
+      // إنشاء الإشعارات محصور بالمالك لمنع الإشعارات العشوائية.
+      allow create: if isOwner()
+
+        && request.resource.data.userId is string
+        && request.resource.data.userId.size() > 0
+
         && request.resource.data.title is string
         && request.resource.data.title.size() >= 2
         && request.resource.data.title.size() <= 120
+
         && request.resource.data.body is string
         && request.resource.data.body.size() <= 500
-        && request.resource.data.read == false
-        && (!signedIn() || request.resource.data.userId != request.auth.uid);
 
-      allow update: if isOwner() || (signedIn()
-        && resource.data.userId == request.auth.uid
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']));
+        && request.resource.data.read == false;
+
+      // المستخدم يستطيع تغيير حالة القراءة فقط.
+      allow update: if isOwner()
+
+        || (
+          signedIn()
+          && resource.data.userId == request.auth.uid
+
+          && request.resource.data.diff(resource.data)
+               .affectedKeys()
+               .hasOnly(['read'])
+
+          && request.resource.data.read is bool
+        );
 
       allow delete: if isOwner();
     }
 
-    // ------------------------------------------------------------------
-    // settings/public: shop name, open/closed switch, weekly hours, breaks,
-    // days off, blocked slots, slot interval, advance/lead limits.
-    // ------------------------------------------------------------------
+    // ============================================================
+    // 8. الإعدادات العامة
+    // ============================================================
+
     match /settings/public {
-      allow read: if true;      // clients need hours + status to book
+
+      allow read: if true;
+
       allow write: if isOwner();
     }
 
-    // settings/private: WhatsApp message templates (owner only).
+    // ============================================================
+    // 9. الإعدادات الخاصة
+    // ============================================================
+
     match /settings/private {
+
       allow read, write: if isOwner();
     }
 
-    // ------------------------------------------------------------------
-    // dailyQueue/{day}: PII-free snapshot of the day's queue
-    // (bookingId, expectedStart, durationMinutes, status - no names/phones).
-    //
-    // Clients read it for two things:
-    //   1. their own live queue position ("my bookings" page),
-    //   2. the day's AVAILABILITY (which slots are already busy) - this is
-    //      why the private `bookings` collection does not need a public list.
-    //
-    // Writes: the owner has full control (queue sync, cascade shifts,
-    // walk-ins). Everyone else - guests included - may only CREATE the day
-    // document with, or UPDATE it by appending, exactly ONE validated entry,
-    // which happens inside the same transaction that creates their booking.
-    // The barber's dashboard re-syncs the whole document from the bookings on
-    // every change, so cancelled/completed entries reconcile automatically.
-    // ------------------------------------------------------------------
+    // ============================================================
+    // 10. الطابور اليومي
+    // ============================================================
+
     match /dailyQueue/{day} {
+
       function validQueueEntry(e) {
         return e is map
-          && e.keys().hasOnly(['bookingId', 'expectedStart', 'durationMinutes', 'status'])
+
+          && e.keys().hasOnly([
+            'bookingId',
+            'expectedStart',
+            'durationMinutes',
+            'status'
+          ])
+
           && e.bookingId is string
           && e.bookingId.size() >= 1
           && e.bookingId.size() <= 60
+
           && isTime(e.expectedStart)
+
           && e.durationMinutes is number
           && e.durationMinutes >= 5
           && e.durationMinutes <= 480
+
           && isStatus(e.status);
       }
 
-      function validQueueDoc(d) {
-        return d.keys().hasOnly(['date', 'entries', 'updatedAt'])
+      // التحقق من الحجز الذي يقابل العنصر الجديد في الطابور.
+      function queueEntryMatchesBooking(e) {
+        let bookingPath = /databases/$(database)/documents/bookings/$(e.bookingId);
+
+        return existsAfter(bookingPath)
+
+          && getAfter(bookingPath).data.date == day
+
+          && getAfter(bookingPath).data.expectedStart == e.expectedStart
+
+          && getAfter(bookingPath).data.durationMinutes == e.durationMinutes
+
+          && getAfter(bookingPath).data.status == e.status
+
+          && getAfter(bookingPath).data.source == 'online';
+      }
+
+      function validQueueDocument(d) {
+        return d.keys().hasOnly([
+            'date',
+            'entries',
+            'updatedAt'
+          ])
+
           && d.date == day
+          && isDate(day)
+
           && d.entries is list
           && d.entries.size() >= 1
-          && d.entries.size() <= 60
-          && d.entries.every(e, validQueueEntry(e));
+          && d.entries.size() <= 60;
       }
 
       allow read: if true;
 
-      // Owner: full control.
+      // المالك يدير الطابور بالكامل.
       allow write: if isOwner();
 
-      // A first booking of the day creates the document with its own entry.
-      allow create: if isDate(day) && validQueueDoc(request.resource.data)
-        && request.resource.data.entries.size() == 1;
+      // أول حجز في اليوم: إنشاء وثيقة الطابور مع الحجز في المعاملة نفسها.
+      allow create: if !isOwner()
 
-      // Anyone may APPEND exactly one entry (their new booking); nothing else
-      // in the document may change.
-      allow update: if isDate(day) && validQueueDoc(request.resource.data)
-        && resource.data.keys().hasOnly(['date', 'entries', 'updatedAt'])
-        && request.resource.data.entries.size() == resource.data.entries.size() + 1
-        && request.resource.data.entries.hasAll(resource.data.entries);
+        && validQueueDocument(request.resource.data)
+
+        && request.resource.data.entries.size() == 1
+
+        && validQueueEntry(request.resource.data.entries[0])
+
+        && queueEntryMatchesBooking(
+          request.resource.data.entries[0]
+        );
+
+      // حجز إضافي: يسمح بإضافة عنصر واحد فقط.
+      allow update: if !isOwner()
+
+        && validQueueDocument(request.resource.data)
+
+        && resource.data.date == day
+        && resource.data.entries is list
+
+        && resource.data.entries.size() < 60
+
+        && request.resource.data.entries.size()
+             == resource.data.entries.size() + 1
+
+        // يجب أن تبقى العناصر القديمة موجودة.
+        && request.resource.data.entries.hasAll(
+             resource.data.entries
+           )
+
+        // العنصر الأخير هو الحجز الجديد.
+        && validQueueEntry(
+          request.resource.data.entries[
+            request.resource.data.entries.size() - 1
+          ]
+        )
+
+        // يجب أن يكون الحجز الجديد موجوداً في نفس المعاملة.
+        && queueEntryMatchesBooking(
+          request.resource.data.entries[
+            request.resource.data.entries.size() - 1
+          ]
+        );
+
+      allow delete: if isOwner();
     }
 
-    // Default: deny everything else.
+    // ============================================================
+    // 11. المنع الافتراضي
+    // ============================================================
+
     match /{document=**} {
       allow read, write: if false;
     }
