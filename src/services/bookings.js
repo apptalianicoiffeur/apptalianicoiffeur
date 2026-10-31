@@ -1,10 +1,19 @@
 /**
  * Booking persistence helpers.
- * Double booking is prevented inside a Firestore transaction: the client
- * re-reads the day's PII-free queue document (`dailyQueue/{date}`, public by
- * the security rules) and refuses to write when the slot overlaps another
- * active booking. The same document is then appended with the new entry, so
- * every other visitor sees the slot as taken in real time.
+ *
+ * Every mutation of a booking is a Firestore transaction that also keeps the
+ * PII-free `dailyQueue/{date}` document(s) in sync — for ALL affected dates,
+ * not only today:
+ *
+ *  - create: double booking is prevented by re-reading the day's queue
+ *    document and refusing any overlap; the new entry is written in the same
+ *    transaction (every other visitor sees the slot as taken in real time).
+ *  - update: the booking and its queue entry move together (status, expected
+ *    time, duration); when the DATE changes the entry is removed from the
+ *    previous day's document and added to the new one, atomically.
+ *  - every write normalizes legacy Array `entries` to the Map shape
+ *    (`entries: { [bookingId]: entry }`), so documents are migrated as they
+ *    are touched even before the explicit migration runs.
  * (The security rules additionally validate every field.)
  */
 import {
@@ -13,16 +22,21 @@ import {
   getDoc,
   getDocs,
   orderBy,
-  query,
   runTransaction,
   serverTimestamp,
-  updateDoc,
+  query,
   where,
 } from 'firebase/firestore';
 import { db, COLLECTIONS } from './bootstrap';
 import { STATUS } from '../utils/constants';
 import { timeToMin } from '../utils/datetime';
-import { busyFromQueue } from '../utils/queue';
+import {
+  busyFromQueue,
+  entriesToMap,
+  isLegacyEntries,
+  queueEntryFromBooking,
+  queueEntryMatches,
+} from '../utils/queue';
 
 /** Thrown when the chosen slot was taken by someone else a moment before. */
 export class SlotTakenError extends Error {
@@ -32,7 +46,16 @@ export class SlotTakenError extends Error {
   }
 }
 
+/** Thrown when the booking id does not exist (update/delete of a ghost). */
+export class BookingNotFoundError extends Error {
+  constructor() {
+    super('booking not found');
+    this.code = 'BOOKING_NOT_FOUND';
+  }
+}
+
 const bookingsCol = () => collection(db, COLLECTIONS.BOOKINGS);
+const queueRef = (date) => doc(db, COLLECTIONS.DAILY_QUEUE, date);
 
 /** Short human-friendly code shown to clients (6 chars). */
 function makeCode() {
@@ -54,9 +77,10 @@ export async function createBookingWithCheck(payload) {
   const end = start + Number(payload.durationMinutes || 30);
 
   const ref = await runTransaction(db, async (tx) => {
-    const queueRef = doc(db, COLLECTIONS.DAILY_QUEUE, payload.date);
-    const queueSnap = await tx.get(queueRef);
-    const entries = queueSnap.exists() ? queueSnap.data().entries || [] : [];
+    const qRef = queueRef(payload.date);
+    const queueSnap = await tx.get(qRef);
+    // Read both shapes: legacy Array documents are normalized on write.
+    const entries = entriesToMap(queueSnap.exists() ? queueSnap.data().entries : null);
 
     const conflict = busyFromQueue({ entries }).some((b) => start < b.end && b.start < end);
     if (conflict) throw new SlotTakenError();
@@ -68,24 +92,13 @@ export async function createBookingWithCheck(payload) {
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
-    // Append exactly one entry (the rules allow clients to append one only).
-    tx.set(
-      queueRef,
-      {
-        date: payload.date,
-        entries: [
-          ...entries,
-          {
-            bookingId: newRef.id,
-            expectedStart: payload.expectedStart || payload.scheduledStart,
-            durationMinutes: Number(payload.durationMinutes || 30),
-            status: payload.status,
-          },
-        ],
-        updatedAt: serverTimestamp(),
-      },
-      { merge: true }
-    );
+    entries[newRef.id] = queueEntryFromBooking({
+      id: newRef.id,
+      ...payload,
+      expectedStart: payload.expectedStart || payload.scheduledStart,
+    });
+    // Full replace: the document only ever holds { date, entries, updatedAt }.
+    tx.set(qRef, { date: payload.date, entries, updatedAt: serverTimestamp() });
     return newRef;
   });
   return ref.id;
@@ -96,8 +109,8 @@ export async function createBookingWithCheck(payload) {
  * public queue document (used before accepting a client's time proposal).
  */
 export async function assertSlotFree(date, time, durationMinutes, ignoreBookingId = null) {
-  const snap = await getDoc(doc(db, COLLECTIONS.DAILY_QUEUE, date));
-  const entries = snap.exists() ? snap.data().entries || [] : [];
+  const snap = await getDoc(queueRef(date));
+  const entries = entriesToMap(snap.exists() ? snap.data().entries : null);
   const start = timeToMin(time);
   const end = start + Number(durationMinutes || 30);
   const conflict = busyFromQueue({ entries }, { ignoreBookingId }).some(
@@ -106,12 +119,112 @@ export async function assertSlotFree(date, time, durationMinutes, ignoreBookingI
   if (conflict) throw new SlotTakenError();
 }
 
-/** Patch fields on a booking (adds `updatedAt`). */
-export async function updateBooking(id, data) {
-  await updateDoc(doc(db, COLLECTIONS.BOOKINGS, id), {
-    ...data,
-    updatedAt: serverTimestamp(),
+/**
+ * Apply one or many booking patches atomically, keeping the queue documents
+ * of every affected date in sync inside the SAME transaction:
+ *
+ *  - the entry of each booking matches its after-state (date, expectedStart,
+ *    durationMinutes, status) on its current day;
+ *  - when a booking moves to another date its entry is removed from the
+ *    previous day's document (which also normalizes legacy Array documents).
+ *
+ * All reads happen before all writes so several bookings sharing one date
+ * document are handled correctly.
+ *
+ * @param {Array<{id: string, data: object}>} changes
+ */
+async function commitBookingChanges(changes) {
+  if (!changes.length) return;
+  await runTransaction(db, async (tx) => {
+    /* Phase 1: read the bookings. */
+    const items = changes.map((c) => ({ ...c, ref: doc(bookingsCol(), c.id) }));
+    for (const item of items) {
+      const snap = await tx.get(item.ref);
+      if (!snap.exists()) throw new BookingNotFoundError();
+      item.before = snap.data();
+    }
+
+    /* Phase 2: read every affected queue document exactly once. */
+    const dates = new Set();
+    for (const item of items) {
+      dates.add(item.before.date);
+      dates.add({ ...item.before, ...item.data }.date);
+    }
+    const queueDocs = new Map();
+    for (const date of dates) {
+      if (!date) continue;
+      const ref = queueRef(date);
+      const snap = await tx.get(ref);
+      const exists = snap.exists();
+      const raw = exists ? snap.data().entries : null;
+      queueDocs.set(date, {
+        ref,
+        date,
+        exists,
+        legacy: isLegacyEntries(raw),
+        storedDate: exists ? snap.data().date : undefined,
+        entries: entriesToMap(raw),
+        dirty: false,
+      });
+    }
+
+    /* Phase 3: compute the booking writes and the queue deltas. */
+    for (const item of items) {
+      const after = { ...item.before, ...item.data };
+      tx.update(item.ref, { ...item.data, updatedAt: serverTimestamp() });
+
+      // 1) current day: the entry must mirror the booking's after-state.
+      const current = queueDocs.get(after.date);
+      if (current) {
+        const wanted = queueEntryFromBooking({ id: item.ref.id, ...after });
+        const stored = current.entries[item.ref.id];
+        const inSync =
+          current.exists &&
+          !current.legacy &&
+          current.storedDate === after.date &&
+          queueEntryMatches(stored, wanted);
+        if (!inSync) {
+          current.entries[item.ref.id] = wanted;
+          current.dirty = true;
+        }
+      }
+
+      // 2) previous day: the entry must leave with the booking.
+      const previous =
+        item.before.date && item.before.date !== after.date
+          ? queueDocs.get(item.before.date)
+          : null;
+      if (previous && previous.exists) {
+        const had = item.ref.id in previous.entries;
+        // Legacy documents are always rewritten so they become Maps.
+        if (had || previous.legacy) {
+          delete previous.entries[item.ref.id];
+          previous.dirty = true;
+        }
+      }
+    }
+
+    /* Phase 4: commit the queue documents. */
+    for (const q of queueDocs.values()) {
+      if (q.dirty) {
+        tx.set(q.ref, { date: q.date, entries: q.entries, updatedAt: serverTimestamp() });
+      }
+    }
   });
+}
+
+/**
+ * Patch fields on a booking (adds `updatedAt`) and atomically syncs the
+ * queue entry of every affected date. Prefer this over a raw update so the
+ * public queue can never drift from the booking.
+ */
+export async function updateBooking(id, data) {
+  await commitBookingChanges([{ id, data }]);
+}
+
+/** Same as `updateBooking` but for many bookings in ONE transaction. */
+export async function updateBookingsWithQueue(changes) {
+  await commitBookingChanges(changes);
 }
 
 /** Fetch every booking of one day (owner uses this for the calendar). */

@@ -13,7 +13,12 @@ import { db, COLLECTIONS } from './bootstrap';
 import { STATUS } from '../utils/constants';
 import { addMinutes, formatDateLong } from '../utils/datetime';
 import { fillTemplate, templateVars } from '../utils/whatsapp';
-import { createBookingWithCheck, updateBooking, assertSlotFree } from './bookings';
+import {
+  createBookingWithCheck,
+  updateBooking,
+  updateBookingsWithQueue,
+  assertSlotFree,
+} from './bookings';
 import { createNotification } from './notifications';
 import { sendPushToToken } from './push';
 import t from '../i18n/ar';
@@ -62,7 +67,14 @@ async function notifyOwner(settings, title, body, bookingId) {
   if (!ownerUid || !title) return;
   // Clients cannot push to the owner's device (the push function only accepts
   // the owner's own token), so this stays an in-app notification.
-  await createNotification({ userId: ownerUid, bookingId, title, body });
+  // Best effort: the booking change itself already succeeded, and the rules
+  // may deny this write (e.g. ownerUid not published yet) — the client action
+  // must not fail because of it.
+  try {
+    await createNotification({ userId: ownerUid, bookingId, title, body });
+  } catch {
+    /* in-app notification is a convenience, not part of the booking state */
+  }
 }
 
 /** Accept the barber's modified time: the new time becomes the booked time. */
@@ -231,12 +243,20 @@ export async function ownerEndSession(booking) {
 
 /**
  * Apply a cascading shift to the following appointments:
- * updates `expectedStart/expectedEnd` and notifies each affected client.
+ * updates `expectedStart/expectedEnd` (all bookings + their queue entries in
+ * ONE transaction) and notifies each affected client.
  */
 export async function ownerApplyShift(changes, settings) {
+  if (changes.length) {
+    await updateBookingsWithQueue(
+      changes.map((change) => ({
+        id: change.booking.id,
+        data: { expectedStart: change.newStart, expectedEnd: change.newEnd },
+      }))
+    );
+  }
   for (const change of changes) {
     const b = change.booking;
-    await updateBooking(b.id, { expectedStart: change.newStart, expectedEnd: change.newEnd });
     const vars = varsFor({ ...b, proposedTime: change.newStart }, settings);
     await notifyUser({
       uid: b.userId,

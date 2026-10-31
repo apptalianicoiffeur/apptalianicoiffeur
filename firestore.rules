@@ -199,35 +199,53 @@ service cloud.firestore {
     }
 
     // ============================================================
-    // 5. التحقق من إضافة الحجز إلى الطابور في نفس المعاملة
+    // 5. الطابور اليومي — مساعدات مشتركة (شكل Map)
     // ============================================================
+    //
+    // `dailyQueue/{date}.entries` خريطة (Map) مربوطة بمعرّف الحجز:
+    //   { [bookingId]: { bookingId, expectedStart, durationMinutes, status } }
+    // يقبل القارئ الشكل القديم (Array) أثناء الترحيل، لكن كل كتابة جديدة
+    // تُحوِّل المستند إلى شكل الـ Map (ترحيل تدريجي دون فقدان أي مدخل).
 
-    function bookingHasQueueEntryAfter(bookingId, d) {
-      let queuePath = /databases/$(database)/documents/dailyQueue/$(d.date);
+    function queueEntryKeys() {
+      return ['bookingId', 'expectedStart', 'durationMinutes', 'status'];
+    }
 
-      return existsAfter(queuePath)
+    // شكل عنصر واحد سليم (بدون بيانات شخصية).
+    function validQueueEntry(e) {
+      return e is map
+        && e.keys().hasOnly(queueEntryKeys())
+        && e.bookingId is string
+        && e.bookingId.size() >= 1
+        && e.bookingId.size() <= 60
+        && isTime(e.expectedStart)
+        && e.durationMinutes is number
+        && e.durationMinutes >= 5
+        && e.durationMinutes <= 480
+        && isStatus(e.status);
+    }
 
-        && getAfter(queuePath).data.date == d.date
+    // العنصر المخزّن `e` يطابق حالة الحجز `d` بعد الطلب (انسحاق ذري).
+    function entryMirrorsBooking(e, bookingId, d) {
+      return validQueueEntry(e)
+        && e.bookingId == bookingId
+        && e.expectedStart == d.expectedStart
+        && e.durationMinutes == d.durationMinutes
+        && e.status == d.status;
+    }
 
-        && getAfter(queuePath).data.entries is list
+    // عنصر `e` موجود فعلاً تحت مفتاحه الصحيح داخل خريطة `m`
+    // (يمنع وضع مدخل حجز تحت مفتاح حجز آخر).
+    function entryBoundIn(m, e) {
+      let stored = m.get(e.bookingId, null);
 
-        && getAfter(queuePath).data.entries.size() > 0
-
-        && getAfter(queuePath).data.entries[
-          getAfter(queuePath).data.entries.size() - 1
-        ].bookingId == bookingId
-
-        && getAfter(queuePath).data.entries[
-          getAfter(queuePath).data.entries.size() - 1
-        ].expectedStart == d.expectedStart
-
-        && getAfter(queuePath).data.entries[
-          getAfter(queuePath).data.entries.size() - 1
-        ].durationMinutes == d.durationMinutes
-
-        && getAfter(queuePath).data.entries[
-          getAfter(queuePath).data.entries.size() - 1
-        ].status == d.status;
+      return validQueueEntry(e)
+        && stored is map
+        && stored.keys().hasOnly(queueEntryKeys())
+        && stored.bookingId == e.bookingId
+        && stored.expectedStart == e.expectedStart
+        && stored.durationMinutes == e.durationMinutes
+        && stored.status == e.status;
     }
 
     // ============================================================
@@ -235,6 +253,34 @@ service cloud.firestore {
     // ============================================================
 
     match /bookings/{bookingId} {
+
+      // بعد أي كتابة: مستند طابور يوم الحجز يحمل مدخل هذا الحجز مطابقاً
+      // لحالته الجديدة — أي تعديل للحجز يجب أن يصحح طابوره في نفس المعاملة.
+      function queueEntryAfter(d) {
+        let queuePath = /databases/$(database)/documents/dailyQueue/$(d.date);
+
+        return existsAfter(queuePath)
+          && getAfter(queuePath).data.date == d.date
+          && getAfter(queuePath).data.entries is map
+          && entryMirrorsBooking(
+            getAfter(queuePath).data.entries.get(bookingId, null),
+            bookingId,
+            d
+          );
+      }
+
+      // عند تغيير التاريخ: يُزال مدخل الحجز من طابور اليوم السابق في نفس
+      // الطلب (ويُحوَّل أي طابور قديم من شكل Array إلى Map).
+      function queueEntryLeftOldDay(oldDate) {
+        let queuePath = /databases/$(database)/documents/dailyQueue/$(oldDate);
+
+        return !existsAfter(queuePath)
+          || (
+            getAfter(queuePath).data.date == oldDate
+            && getAfter(queuePath).data.entries is map
+            && getAfter(queuePath).data.entries.get(bookingId, null) == null
+          );
+      }
 
       // حجز جديد من الزبون أو الزائر.
       function validOnlineBooking() {
@@ -255,10 +301,10 @@ service cloud.firestore {
             )
           )
 
-          && bookingHasQueueEntryAfter(bookingId, d);
+          && queueEntryAfter(d);
       }
 
-      // حجز ينشئه المالك من لوحة التحكم.
+      // حجز ينشئه المالك من لوحة التحكم (يدوي/زبون عابر).
       function validOwnerBooking() {
         let d = request.resource.data;
 
@@ -278,71 +324,101 @@ service cloud.firestore {
           && resource.data.userId == request.auth.uid
         );
 
-      // تعديل الحجوزات من طرف المالك أو الزبون وفق الحالات المسموحة.
-      allow update: if isOwner()
+      // تعديل الحجز من الزبون: كل انتقال مقيّد بحقوله المحددة فقط، ولا يجوز
+      // دمج تغييرات حرة مع الانتقال ولا تعديل الحجز دون مزامنة طابوره.
+      function clientUpdate() {
+        let d = request.resource.data;
+        let old = resource.data;
+        let changed = d.diff(old).affectedKeys();
 
-        || (
-          signedIn()
+        return signedIn()
 
-          && resource.data.userId == request.auth.uid
+          && old.userId == request.auth.uid
 
-          && request.resource.data.diff(resource.data)
-               .affectedKeys()
-               .hasOnly([
-                 'status',
-                 'date',
-                 'scheduledStart',
-                 'scheduledEnd',
-                 'expectedStart',
-                 'expectedEnd',
-                 'proposedDate',
-                 'proposedTime',
-                 'barberMessage',
-                 'clientProposedDate',
-                 'clientProposedTime',
-                 'updatedAt'
-               ])
+          // الطابور يتبع الحجز دائماً (كل التواريخ المتأثرة).
+          && queueEntryAfter(d)
+          && (old.date == d.date || queueEntryLeftOldDay(old.date))
 
           && (
 
-            // إلغاء الحجز.
+            // (1) إلغاء الحجز من الزبون.
             (
-              request.resource.data.status == 'cancelled'
-              && resource.data.status in [
+              d.status == 'cancelled'
+              && old.status in [
                 'pending',
                 'accepted',
                 'accepted_modified'
               ]
+              && changed.hasOnly(['status', 'updatedAt'])
             )
 
             ||
 
-            // قبول التوقيت المعدل من الحلاق.
+            // (2) قبول التوقيت المعدل من الحلاق: يصبح الموعد المعتمد.
             (
-              request.resource.data.status == 'accepted'
-              && resource.data.status == 'accepted_modified'
-              && request.resource.data.proposedDate == null
+              old.status == 'accepted_modified'
+              && d.status == 'accepted'
+              && old.proposedDate is string
+              && d.date == old.proposedDate
+              && d.scheduledStart == old.proposedTime
+              && d.expectedStart == old.proposedTime
+              && isDate(d.date)
+              && isTime(d.scheduledStart)
+              && isTime(d.scheduledEnd)
+              && isTime(d.expectedStart)
+              && isTime(d.expectedEnd)
+              && d.scheduledEnd == d.expectedEnd
+              && d.proposedDate == null
+              && d.proposedTime == null
+              && changed.hasOnly([
+                'status',
+                'date',
+                'scheduledStart',
+                'scheduledEnd',
+                'expectedStart',
+                'expectedEnd',
+                'proposedDate',
+                'proposedTime',
+                'updatedAt'
+              ])
             )
 
             ||
 
-            // رفض التوقيت المعدل.
+            // (3) رفض التعديل: عودة الحجز إلى الانتظار دون رسالة مفبركة.
             (
-              request.resource.data.status == 'pending'
-              && resource.data.status == 'accepted_modified'
+              old.status == 'accepted_modified'
+              && d.status == 'pending'
+              && d.proposedDate == null
+              && d.proposedTime == null
+              && d.barberMessage == ''
+              && changed.hasOnly([
+                'status',
+                'proposedDate',
+                'proposedTime',
+                'barberMessage',
+                'updatedAt'
+              ])
             )
 
             ||
 
-            // اقتراح موعد جديد من الزبون.
+            // (4) اقتراح موعد جديد من الزبون (الحجز يبقى قيد الانتظار).
             (
-              request.resource.data.status == 'pending'
-              && resource.data.status == 'pending'
-              && request.resource.data.clientProposedDate is string
-              && request.resource.data.clientProposedTime is string
+              old.status == 'pending'
+              && d.status == 'pending'
+              && isDate(d.clientProposedDate)
+              && isTime(d.clientProposedTime)
+              && changed.hasOnly([
+                'clientProposedDate',
+                'clientProposedTime',
+                'updatedAt'
+              ])
             )
-          )
-        );
+          );
+      }
+
+      allow update: if isOwner() || clientUpdate();
 
       allow delete: if isOwner();
     }
@@ -353,26 +429,67 @@ service cloud.firestore {
 
     match /notifications/{notificationId} {
 
+      function validNotification(d) {
+        return d.keys().hasOnly([
+            'userId',
+            'bookingId',
+            'title',
+            'body',
+            'read',
+            'createdAt'
+          ])
+
+          && d.userId is string
+          && d.userId.size() > 0
+          && d.userId.size() <= 128
+
+          && d.title is string
+          && d.title.size() >= 2
+          && d.title.size() <= 120
+
+          && d.body is string
+          && d.body.size() <= 500
+
+          && d.read == false
+
+          // لا يمكن تأريخ إشعار لوقت مضى (منع التزوير).
+          && d.createdAt == request.time;
+      }
+
+      // الزبون يُشعر صاحب الصالون فقط، وبربط الإشعار بحجز يملكه فعلاً —
+      // يمنع الإشعارات العشوائية أو الموجّهة لمستخدمين آخرين.
+      function clientCanNotifyOwner(d) {
+        let settingsPath = /databases/$(database)/documents/settings/public;
+        let bookingPath = /databases/$(database)/documents/bookings/$(d.bookingId);
+
+        return signedIn()
+
+          // الهدف هو المالك (منشور في الإعدادات العامة).
+          && exists(settingsPath)
+          && get(settingsPath).data.keys().hasAll(['ownerUid'])
+          && get(settingsPath).data.ownerUid is string
+          && get(settingsPath).data.ownerUid == d.userId
+
+          // مرتبط بحجز يملكه المرسل.
+          && d.bookingId is string
+          && d.bookingId.size() > 0
+          && d.bookingId.size() <= 60
+          && exists(bookingPath)
+          && get(bookingPath).data.userId == request.auth.uid;
+      }
+
       allow read: if isOwner()
         || (
           signedIn()
           && resource.data.userId == request.auth.uid
         );
 
-      // إنشاء الإشعارات محصور بالمالك لمنع الإشعارات العشوائية.
-      allow create: if isOwner()
-
-        && request.resource.data.userId is string
-        && request.resource.data.userId.size() > 0
-
-        && request.resource.data.title is string
-        && request.resource.data.title.size() >= 2
-        && request.resource.data.title.size() <= 120
-
-        && request.resource.data.body is string
-        && request.resource.data.body.size() <= 500
-
-        && request.resource.data.read == false;
+      // إنشاء: المالك لكل المستخدمين، والزبون لصاحب الصالون وبربط بحجزه.
+      allow create: if validNotification(request.resource.data)
+        && (
+          isOwner()
+          || clientCanNotifyOwner(request.resource.data)
+        );
 
       // المستخدم يستطيع تغيير حالة القراءة فقط.
       allow update: if isOwner()
@@ -417,112 +534,204 @@ service cloud.firestore {
 
     match /dailyQueue/{day} {
 
-      function validQueueEntry(e) {
-        return e is map
-
-          && e.keys().hasOnly([
-            'bookingId',
-            'expectedStart',
-            'durationMinutes',
-            'status'
-          ])
-
-          && e.bookingId is string
-          && e.bookingId.size() >= 1
-          && e.bookingId.size() <= 60
-
-          && isTime(e.expectedStart)
-
-          && e.durationMinutes is number
-          && e.durationMinutes >= 5
-          && e.durationMinutes <= 480
-
-          && isStatus(e.status);
-      }
-
-      // التحقق من الحجز الذي يقابل العنصر الجديد في الطابور.
-      function queueEntryMatchesBooking(e) {
-        let bookingPath = /databases/$(database)/documents/bookings/$(e.bookingId);
-
-        return existsAfter(bookingPath)
-
-          && getAfter(bookingPath).data.date == day
-
-          && getAfter(bookingPath).data.expectedStart == e.expectedStart
-
-          && getAfter(bookingPath).data.durationMinutes == e.durationMinutes
-
-          && getAfter(bookingPath).data.status == e.status
-
-          && getAfter(bookingPath).data.source == 'online';
-      }
-
+      // هيكل المستند بعد الكتابة: { date, entries (Map), updatedAt }.
       function validQueueDocument(d) {
-        return d.keys().hasOnly([
-            'date',
-            'entries',
-            'updatedAt'
-          ])
+        return d.keys().hasOnly(['date', 'entries', 'updatedAt'])
+          && d.keys().hasAll(['date', 'entries', 'updatedAt'])
 
           && d.date == day
           && isDate(day)
 
-          && d.entries is list
-          && d.entries.size() >= 1
-          && d.entries.size() <= 60;
+          && d.entries is map
+          && d.entries.size() <= 60
+
+          && d.updatedAt is timestamp;
       }
 
+      // المدخل المضاف/المعدَّل يجب أن يطابق حجزه بعد الطلب، وأن يكون من
+      // مفتاحه الصحيح، وأن يخصّ صاحب الطلب (أو حجز ضيف عند إنشائه).
+      function entryBelongsToRequester(e) {
+        let bookingPath = /databases/$(database)/documents/bookings/$(e.bookingId);
+
+        return validQueueEntry(e)
+          && entryBoundIn(request.resource.data.entries, e)
+
+          && existsAfter(bookingPath)
+          && getAfter(bookingPath).data.date == day
+          && getAfter(bookingPath).data.expectedStart == e.expectedStart
+          && getAfter(bookingPath).data.durationMinutes == e.durationMinutes
+          && getAfter(bookingPath).data.status == e.status
+
+          && (
+            (
+              getAfter(bookingPath).data.userId == null
+              && !signedIn()
+            )
+            || (
+              signedIn()
+              && getAfter(bookingPath).data.userId == request.auth.uid
+            )
+          );
+      }
+
+      // المدخل المُزال يجب أن يخصّ صاحب الطلب، وأن حجزه قد غادر هذا اليوم
+      // (النقل إلى يوم آخر) — يمنع حذف مدخلات الآخرين أو إخلاء يوم سليم.
+      function entryLeftThisDay(e) {
+        let bookingPath = /databases/$(database)/documents/bookings/$(e.bookingId);
+
+        return e is map
+          && e.bookingId is string
+          && e.bookingId.size() > 0
+          && e.bookingId.size() <= 60
+
+          && existsAfter(bookingPath)
+          && getAfter(bookingPath).data.date != day
+
+          && (
+            (
+              getAfter(bookingPath).data.userId == null
+              && !signedIn()
+            )
+            || (
+              signedIn()
+              && getAfter(bookingPath).data.userId == request.auth.uid
+            )
+          );
+      }
+
+      // ---- الكتابة على مستند قديم (entries: Array) أثناء الترحيل ----
+      // يُسمح فقط بالتحويل إلى Map مع إما: لا تغيير في المحتوى، أو تغيير
+      // مدخل واحد يخصّ صاحب الطلب، أو إزالة مدخله عندما انتقل إلى يوم آخر.
+      //
+      // `removeAll` مخصّصة للقوائم فقط، لذلك تُنفَّذ العمليات داخل دالة
+      // منفصلة تُستدعى بعد التأكد من شكل البيانات (`&&` يمنع استدعائها).
+      function legacyUpdateCore(before, after) {
+        let preserved = before.removeAll(after.values());
+        let changed = after.values().removeAll(before);
+
+        // لا يمكن فقدان أكثر من مدخل واحد ولا إضافة أكثر من واحد.
+        return preserved.size() <= 1
+          && changed.size() <= 1
+
+          && (
+            // تحويل الشكل فقط (المحتوى نفسه).
+            (
+              preserved.size() == 0
+              && changed.size() == 0
+            )
+
+            ||
+
+            // إضافة/تعديل مدخل واحد يخصّ صاحب الطلب.
+            (
+              preserved.size() == 0
+              && changed.size() == 1
+              && entryBelongsToRequester(changed[0])
+            )
+
+            ||
+
+            // إزالة مدخل صاحب الطلب لأنه غادر هذا اليوم.
+            (
+              preserved.size() == 1
+              && changed.size() == 0
+              && entryLeftThisDay(preserved[0])
+            )
+
+            ||
+
+            // استبدال مدخله بنفسه (تصحيح/ترحيل) — لا يُمسك مدخل غيره.
+            (
+              preserved.size() == 1
+              && changed.size() == 1
+              && preserved[0].bookingId == changed[0].bookingId
+              && entryBelongsToRequester(changed[0])
+            )
+          );
+      }
+
+      function legacyQueueUpdate() {
+        let before = resource.data.entries;
+        let after = request.resource.data.entries;
+
+        return before is list
+          && after is map
+          && legacyUpdateCore(before, after);
+      }
+
+      // ---- الكتابة على مستند حديث (entries: Map) ----
+      // عنصر واحد فقط قد يُضاف أو يُعدَّل أو يُزال في كل كتابة، ويجب أن
+      // يطابق حجزه بعد الطلب؛ بقية المدخلات تبقى كما هي تماماً.
+      function mapUpdateCore(before, after) {
+        let changed = after.values().removeAll(before.values());
+        let removedKeys = before.keys().removeAll(after.keys());
+
+        return changed.size() + removedKeys.size() <= 1
+
+          && (
+            // لا تغيير على المدخلات (مثلاً إعادة كتابة محتوى مطابق).
+            (
+              changed.size() == 0
+              && removedKeys.size() == 0
+            )
+
+            ||
+
+            // إضافة أو تعديل مدخل واحد مطابق لحجز صاحب الطلب.
+            (
+              changed.size() == 1
+              && removedKeys.size() == 0
+              && entryBelongsToRequester(changed[0])
+            )
+
+            ||
+
+            // إزالة مدخل صاحب الطلب لأنه غادر هذا اليوم.
+            (
+              changed.size() == 0
+              && removedKeys.size() == 1
+              && entryLeftThisDay(before.get(removedKeys[0], null))
+            )
+          );
+      }
+
+      function mapQueueUpdate() {
+        let before = resource.data.entries;
+        let after = request.resource.data.entries;
+
+        return before is map
+          && after is map
+          && mapUpdateCore(before, after);
+      }
+
+      // القراءة عامة: مستند خالٍ من البيانات الشخصية (لا أسماء ولا هواتف).
       allow read: if true;
 
-      // المالك يدير الطابور بالكامل.
+      // المالك يدير الطابور بالكامل (إعادة بناء، ترحيل، تنظيف).
       allow write: if isOwner();
 
-      // أول حجز في اليوم: إنشاء وثيقة الطابور مع الحجز في المعاملة نفسها.
+      // أول مدخل في اليوم: إنشاء وثيقة الطابور مع الحجز في المعاملة نفسها.
       allow create: if !isOwner()
-
         && validQueueDocument(request.resource.data)
-
         && request.resource.data.entries.size() == 1
+        && entryBelongsToRequester(
+             request.resource.data.entries.values()[0]
+           );
 
-        && validQueueEntry(request.resource.data.entries[0])
-
-        && queueEntryMatchesBooking(
-          request.resource.data.entries[0]
-        );
-
-      // حجز إضافي: يسمح بإضافة عنصر واحد فقط.
+      // أي تعديل لاحق: مدخل واحد كحد أقصى، مربوط بحجزه في نفس المعاملة.
       allow update: if !isOwner()
-
         && validQueueDocument(request.resource.data)
-
         && resource.data.date == day
-        && resource.data.entries is list
-
-        && resource.data.entries.size() < 60
-
-        && request.resource.data.entries.size()
-             == resource.data.entries.size() + 1
-
-        // يجب أن تبقى العناصر القديمة موجودة.
-        && request.resource.data.entries.hasAll(
-             resource.data.entries
-           )
-
-        // العنصر الأخير هو الحجز الجديد.
-        && validQueueEntry(
-          request.resource.data.entries[
-            request.resource.data.entries.size() - 1
-          ]
-        )
-
-        // يجب أن يكون الحجز الجديد موجوداً في نفس المعاملة.
-        && queueEntryMatchesBooking(
-          request.resource.data.entries[
-            request.resource.data.entries.size() - 1
-          ]
+        && (
+          (
+            resource.data.entries is list
+            && legacyQueueUpdate()
+          )
+          || (
+            resource.data.entries is map
+            && mapQueueUpdate()
+          )
         );
-
-      allow delete: if isOwner();
     }
 
     // ============================================================

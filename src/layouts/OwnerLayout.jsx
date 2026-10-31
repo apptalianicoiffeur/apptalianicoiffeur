@@ -22,6 +22,7 @@ import { useNotifications } from '../context/NotificationsContext';
 import { useSettings } from '../context/SettingsContext';
 import { useCollection } from '../hooks/useCollection';
 import { useQueueSync } from '../hooks/useQueueSync';
+import { migrateLegacyQueueDocs } from '../services/queueMigration';
 import { todayISO } from '../utils/datetime';
 import { playChime } from '../utils/sound';
 import { ShopStatusBadge } from '../components/shared';
@@ -38,7 +39,7 @@ const NAV = [
 
 export default function OwnerLayout() {
   const { settings, savePublic } = useSettings();
-  const { user } = useAuth();
+  const { user, isOwner } = useAuth();
   const { latestId } = useNotifications();
   const today = todayISO();
   const lastSoundRef = useRef(null);
@@ -58,6 +59,16 @@ export default function OwnerLayout() {
 
   // Keep the public, PII-free queue document up to date.
   useQueueSync(today, todayBookings);
+
+  // Convert legacy Array `dailyQueue.entries` documents to the Map shape.
+  // Idempotent (already-migrated docs are skipped) and owner-only, so it is
+  // safe to run on every dashboard load; no booking or time is ever lost.
+  useEffect(() => {
+    if (!isOwner) return;
+    migrateLegacyQueueDocs().catch(() => {
+      /* best effort: reads accept both shapes until a later attempt succeeds */
+    });
+  }, [isOwner]);
 
   // Sound alert whenever a NEW notification arrives (e.g. a new booking).
   useEffect(() => {
