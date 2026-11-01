@@ -7,18 +7,25 @@
  *
  * Values mimic a Vite build (in the browser `import.meta.env` is used instead
  * of `process.env` — src/config/firebase.js reads both).
+ *
+ * They are assigned UNCONDITIONALLY on purpose: the suites must talk to the
+ * emulator project and to the owner identity hardcoded in `firestore.rules`,
+ * never to whatever happens to sit in the developer shell or in `.env`.
  */
-process.env.VITE_FIREBASE_API_KEY = process.env.VITE_FIREBASE_API_KEY || 'demo-api-key';
-process.env.VITE_FIREBASE_AUTH_DOMAIN =
-  process.env.VITE_FIREBASE_AUTH_DOMAIN || '127.0.0.1:9099';
-process.env.VITE_FIREBASE_PROJECT_ID = process.env.VITE_FIREBASE_PROJECT_ID || 'demo-taliani-tests';
-process.env.VITE_FIREBASE_STORAGE_BUCKET =
-  process.env.VITE_FIREBASE_STORAGE_BUCKET || 'demo-taliani-tests.appspot.com';
-process.env.VITE_FIREBASE_MESSAGING_SENDER_ID =
-  process.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '0';
-process.env.VITE_FIREBASE_APP_ID = process.env.VITE_FIREBASE_APP_ID || '1:0:web:demo';
-process.env.VITE_OWNER_EMAIL =
-  process.env.VITE_OWNER_EMAIL || 'app.taliani.coiffeur@gmail.com';
+export const PROJECT_ID = 'demo-taliani-tests';
+
+process.env.VITE_FIREBASE_API_KEY = 'demo-api-key';
+// `@firebase/auth` asserts that `authDomain` contains no ':' (it is only used
+// for redirects/OAuth; the emulator URL is passed to connectAuthEmulator).
+process.env.VITE_FIREBASE_AUTH_DOMAIN = `${PROJECT_ID}.firebaseapp.com`;
+process.env.VITE_FIREBASE_PROJECT_ID = PROJECT_ID;
+process.env.VITE_FIREBASE_STORAGE_BUCKET = `${PROJECT_ID}.appspot.com`;
+process.env.VITE_FIREBASE_MESSAGING_SENDER_ID = '0';
+process.env.VITE_FIREBASE_APP_ID = '1:0:web:demo';
+// Must equal `ownerEmail()` in firestore.rules.
+process.env.VITE_OWNER_EMAIL = 'app.taliani.coiffeur@gmail.com';
+// Never let a VAPID key from `.env` leak into the test process.
+process.env.VITE_FIREBASE_VAPID_KEY = '';
 
 /** Emulator endpoints used by the connected SDK instances. */
 export const FIRESTORE_EMULATOR = { host: '127.0.0.1', port: 8080 };

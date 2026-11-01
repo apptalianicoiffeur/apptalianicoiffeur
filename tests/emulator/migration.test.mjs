@@ -37,6 +37,10 @@ const entry = (bookingId, expectedStart, durationMinutes = 30, status = 'pending
   status,
 });
 
+// The migration reports are collection-wide, so these tests pin the day
+// documents they own: other suites leave dailyQueue documents behind.
+const DAYS = ['2027-01-01', '2027-01-02', '2027-01-03'];
+
 test('setup: seed services and public settings', async () => {
   await seedServices();
   await seedPublicSettings();
@@ -50,7 +54,7 @@ test('the dry run reports the legacy documents without writing anything', async 
   await seedLegacyQueue('2027-01-03', { c1: entry('c1', '11:00') });
 
   await signInAsOwner();
-  const report = await migrateLegacyQueueDocs({ dryRun: true });
+  const report = await migrateLegacyQueueDocs({ dryRun: true, days: DAYS });
 
   assert.equal(report.scanned, 3);
   assert.equal(report.migrated, 2, 'the two Array documents would be converted');
@@ -64,7 +68,7 @@ test('the dry run reports the legacy documents without writing anything', async 
 
 test('the migration converts every Array document without losing an entry', async () => {
   await signInAsOwner();
-  const report = await migrateLegacyQueueDocs();
+  const report = await migrateLegacyQueueDocs({ days: DAYS });
 
   assert.equal(report.migrated, 2);
   assert.equal(report.skipped, 1);
@@ -87,7 +91,7 @@ test('a second run is a no-op (idempotent)', async () => {
   await signInAsOwner();
   const before = (await readQueue('2027-01-01')).data();
 
-  const report = await migrateLegacyQueueDocs();
+  const report = await migrateLegacyQueueDocs({ days: DAYS });
 
   assert.equal(report.migrated, 0, 'nothing left to migrate');
   assert.equal(report.skipped, 3, 'every document is already a Map');
@@ -103,7 +107,7 @@ test('a queue entry that cannot be keyed is reported, not silently lost', async 
   await seedLegacyQueue('2027-02-01', [{ expectedStart: '09:00', durationMinutes: 30 }]);
 
   await signInAsOwner();
-  const report = await migrateLegacyQueueDocs({ dryRun: true });
+  const report = await migrateLegacyQueueDocs({ dryRun: true, days: ['2027-02-01'] });
   const affected = report.dropped.filter((d) => d.day === '2027-02-01');
 
   assert.equal(affected.length, 1);
@@ -155,9 +159,11 @@ test('moving a booking off a legacy day removes only its own entry', async () =>
   const to = '2027-05-02';
   await seedLegacyQueue(from, [entry('stays-put', '09:00'), entry('mover', '09:30')]);
 
+  // The two legacy entries are real reservations, so the new booking has to
+  // take a slot that is actually free on that day.
   await signInAsAnonymous();
   const id = await createBookingWithCheck(
-    bookingPayload({ date: from, time: '09:30', userId: null })
+    bookingPayload({ date: from, time: '11:00', userId: null })
   );
 
   // Move it to another day (owner session: the only role allowed to shift).
@@ -174,6 +180,11 @@ test('moving a booking off a legacy day removes only its own entry', async () =>
   assert.deepEqual(
     queueEntryOf(fromQueue.data(), 'stays-put'),
     entry('stays-put', '09:00'),
+    'the other entries must stay exactly as they were'
+  );
+  assert.deepEqual(
+    queueEntryOf(fromQueue.data(), 'mover'),
+    entry('mover', '09:30'),
     'the other entries must stay exactly as they were'
   );
 

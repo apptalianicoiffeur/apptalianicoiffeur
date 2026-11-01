@@ -5,10 +5,21 @@
  * emulators started by `firebase emulators:exec` (see package.json scripts),
  * with the real `firestore.rules` loaded from firebase.json.
  *
- * Identity: the Firestore emulator forwards the ID token minted by the Auth
- * emulator, so `signInAs(...)` mints a custom token (unsigned, the emulator
- * does not verify signatures) carrying the claims the rules inspect
- * (`email`, `email_verified`).
+ * Identity
+ * --------
+ * `firestore.rules` authorises on `request.auth.token.email` and
+ * `request.auth.token.email_verified`. The Auth emulator only ever emits those
+ * two claims FROM THE STORED USER RECORD: `generateJwt` writes
+ * `email: user.email, email_verified: user.emailVerified` AFTER spreading any
+ * custom claim, so custom claims can never supply them. A user must therefore
+ * exist first.
+ *
+ * `provisionAccount(uid, email)` creates it through the privileged Admin REST
+ * endpoint (`Authorization: Bearer owner`), which — unlike the public
+ * `accounts:signUp` — accepts an exact `localId` and `emailVerified: true`.
+ * `signInAs(...)` then signs in with `signInWithCustomToken` using a plain
+ * JSON blob as the token (the emulator accepts a JSON payload and skips the
+ * JWT `aud` assertion on that path).
  *
  * The app has a single auth/firestore singleton, so the tests switch identity
  * sequentially with signInAsOwner / signInAsClient / signInAsAnonymous.
@@ -28,7 +39,7 @@ import {
 import { connectAuthEmulator, onAuthStateChanged, signInWithCustomToken, signOut } from 'firebase/auth';
 
 import { auth, db, OWNER_EMAIL } from '../../src/config/firebase.js';
-import { AUTH_EMULATOR, FIRESTORE_EMULATOR } from './env.mjs';
+import { AUTH_EMULATOR, FIRESTORE_EMULATOR, PROJECT_ID } from './env.mjs';
 
 /* Connect the singleton SDK instances to the emulators (before any call). */
 connectFirestoreEmulator(db, FIRESTORE_EMULATOR.host, FIRESTORE_EMULATOR.port);
@@ -43,16 +54,81 @@ export const CLIENT_B_UID = 'client-b-uid-001';
 export const SERVICE_ID = 'svc-haircut';
 export const OTHER_SERVICE_ID = 'svc-beard';
 
-const b64url = (value) => Buffer.from(JSON.stringify(value)).toString('base64url');
+/** Emails must match the identity the rules expect (owner = rules constant). */
+const EMAILS = new Map([
+  [OWNER_UID, OWNER_EMAIL],
+  [CLIENT_A_UID, 'client.a@example.com'],
+  [CLIENT_B_UID, 'client.b@example.com'],
+]);
 
-/** Unsigned JWT understood by the Auth emulator (no signature verification). */
-function mintCustomToken(uid, claims = {}) {
-  const now = Math.floor(Date.now() / 1000);
-  return [
-    b64url({ alg: 'none', typ: 'JWT' }),
-    b64url({ sub: uid, uid, iat: now, exp: now + 3600, ...claims }),
-    '',
-  ].join('.');
+const emailFor = (uid, claims = {}) =>
+  String(claims.email || EMAILS.get(uid) || `${uid}@example.com`).trim().toLowerCase();
+
+/* ------------------------------------------------------------------ */
+/* Identity provisioning (privileged Auth Admin REST API)             */
+/* ------------------------------------------------------------------ */
+
+// The Auth emulator mounts the OpenAPI spec under the production host name
+// (server.js `specForRouter()` rewrites `https://identitytoolkit.googleapis.com`
+// to `/identitytoolkit.googleapis.com`), which is also what the SDK uses.
+const AUTH_ADMIN = `${AUTH_EMULATOR}/identitytoolkit.googleapis.com/v1`;
+/** uid -> in-flight/completed provisioning promise (failures are NOT cached). */
+const provisioned = new Map();
+
+/** Best-effort extraction of the emulator's error text. */
+function errorText(body, fallback) {
+  const raw = body?.error?.message ?? body?.error ?? body?.message ?? fallback;
+  return typeof raw === 'string' ? raw : JSON.stringify(raw);
+}
+
+async function createAccount(uid, email) {
+  const res = await fetch(`${AUTH_ADMIN}/accounts:signUp`, {
+    method: 'POST',
+    headers: {
+      // Grants the privileged branch: allows `localId` + `emailVerified`.
+      Authorization: 'Bearer owner',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      targetProjectId: PROJECT_ID,
+      localId: uid,
+      email,
+      emailVerified: true,
+      // Never used: tests only ever sign in with a custom token.
+      password: 'emulator-test-pw',
+    }),
+  });
+
+  let body = null;
+  try {
+    body = await res.json();
+  } catch {
+    /* empty body */
+  }
+
+  // Re-running the suite, or reusing an id, is not an error.
+  const text = errorText(body, '');
+  if (res.ok || text.includes('EMAIL_EXISTS') || text.includes('DUPLICATE_LOCAL_ID')) {
+    return;
+  }
+  throw new Error(`provisionAccount(${uid}) failed: HTTP ${res.status} — ${text || 'no body'}`);
+}
+
+/**
+ * Create the auth record backing `uid` with a verified `email`, so that the
+ * ID token minted on sign-in carries it. Idempotent within a run; a failed
+ * attempt is retried on the next call instead of being remembered.
+ */
+export function provisionAccount(uid, email = emailFor(uid)) {
+  const pending = provisioned.get(uid);
+  if (pending) return pending;
+
+  const attempt = createAccount(uid, email).catch((err) => {
+    provisioned.delete(uid);
+    throw err;
+  });
+  provisioned.set(uid, attempt);
+  return attempt;
 }
 
 function waitForAuth() {
@@ -64,22 +140,44 @@ function waitForAuth() {
   });
 }
 
-/** Sign in (or sign out when uid is null) and wait for the auth state. */
+/**
+ * Sign in (or sign out when uid is null) and wait for the auth state.
+ * The token is a JSON payload: `{ uid, claims? }`.
+ */
 export async function signInAs(uid, claims = {}) {
   await signOut(auth).catch(() => {});
-  if (uid) await signInWithCustomToken(auth, mintCustomToken(uid, claims));
+  if (uid) {
+    await provisionAccount(uid, emailFor(uid, claims));
+    const extra = { ...claims };
+    delete extra.email;
+    delete extra.email_verified;
+    const token = Object.keys(extra).length ? { uid, claims: extra } : { uid };
+    await signInWithCustomToken(auth, JSON.stringify(token));
+  }
   await waitForAuth();
+
+  // The rules key off `email` / `email_verified`, which the emulator only puts
+  // in the token when the user record exists. Fail loudly here instead of
+  // letting every later write come back as an opaque permission-denied.
+  if (uid) {
+    const { claims: got } = await auth.currentUser.getIdTokenResult();
+    assert.ok(
+      got.email && got.email_verified === true,
+      `sign-in for ${uid} produced a token without email/email_verified: ` +
+        `email=${JSON.stringify(got.email)} email_verified=${JSON.stringify(got.email_verified)}`
+    );
+  }
   return auth.currentUser;
 }
 
 /** The shop owner (matches `ownerEmail()` in firestore.rules). */
 export function signInAsOwner() {
-  return signInAs(OWNER_UID, { email: OWNER_EMAIL, email_verified: true });
+  return signInAs(OWNER_UID);
 }
 
 /** A regular verified client. */
-export function signInAsClient(uid = CLIENT_A_UID, email = 'client.a@example.com') {
-  return signInAs(uid, { email, email_verified: true });
+export function signInAsClient(uid = CLIENT_A_UID, email = EMAILS.get(CLIENT_A_UID)) {
+  return signInAs(uid, { email });
 }
 
 /** No session at all (guest booking flows). */

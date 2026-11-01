@@ -193,8 +193,11 @@ test('the recipient may only flip the `read` flag', async () => {
 
   await asClient(CLIENT_A_UID);
   await markRead(id); // allowed: only `read` changes
-  const after = await readCollection('notifications');
-  assert.equal(after.find((n) => n.id === id).read, true);
+  // A recipient reads their own notifications through a `where('userId')`
+  // query (see services/notifications.js); a single document read is what
+  // that query boils down to per rule evaluation.
+  const after = await getDoc(doc(db, 'notifications', id));
+  assert.equal(after.data().read, true);
 
   await expectDenied(
     updateDoc(doc(db, 'notifications', id), { title: 'عنوان مفبرك' }),

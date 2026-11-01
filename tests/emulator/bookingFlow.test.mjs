@@ -16,7 +16,7 @@
 import './helpers.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { doc, setDoc, writeBatch } from 'firebase/firestore';
+import { collection, doc, setDoc, writeBatch } from 'firebase/firestore';
 
 import {
   CLIENT_A_UID,
@@ -48,7 +48,7 @@ import {
   ownerApplyShift,
   ownerCreateWalkIn,
 } from '../../src/services/bookingActions.js';
-import { busyFromQueue, queueEntryOf, timeToMinEntry } from './asserts.mjs';
+import { busyFromQueue, queueEntryOf, timeToMin } from './asserts.mjs';
 
 const settings = { ownerUid: OWNER_UID };
 
@@ -103,7 +103,7 @@ test('overlapping booking is rejected, adjacent slot succeeds', async () => {
 
 test('a booking written WITHOUT its queue entry is rejected by the rules', async () => {
   await signInAsClient();
-  const ref = doc(db, 'bookings');
+  const ref = doc(collection(db, 'bookings'));
   await expectDenied(
     setDoc(
       ref,
@@ -121,7 +121,7 @@ test('a queue entry that does not match its booking is rejected (same request)',
   await signInAsClient();
 
   // Wrong expectedStart (13:30 vs the booking's 13:00) -> rules deny the batch.
-  const bookingRef = doc(db, 'bookings');
+  const bookingRef = doc(collection(db, 'bookings'));
   const payload = bookingPayload({
     date: '2026-12-01',
     time: '13:00',
@@ -181,7 +181,7 @@ test('client cancellation updates booking + queue and frees the slot', async () 
   // The slot no longer blocks other clients.
   const busy = busyFromQueue(queue.data());
   assert.equal(
-    busy.some((b) => b.start <= timeToMinEntry('14:00') && timeToMinEntry('14:00') < b.end),
+    busy.some((b) => b.start <= timeToMin('14:00') && timeToMin('14:00') < b.end),
     false
   );
 

@@ -26,14 +26,17 @@ import { entriesToMap } from '../utils/queue';
  *
  * @param {object} [options]
  * @param {boolean} [options.dryRun] report what would change without writing
+ * @param {string[]|null} [options.days] limit the run to these day document
+ *   ids (chained/chunked migrations); `null` scans the whole collection
  * @returns {Promise<{scanned: number, migrated: number, skipped: number, dropped: Array<{day: string, reason: string}>}>}
  */
-export async function migrateLegacyQueueDocs({ dryRun = false } = {}) {
+export async function migrateLegacyQueueDocs({ dryRun = false, days = null } = {}) {
   const result = { scanned: 0, migrated: 0, skipped: 0, dropped: [] };
   if (!db) return result;
 
   const snap = await getDocs(collection(db, COLLECTIONS.DAILY_QUEUE));
   for (const docSnap of snap.docs) {
+    if (Array.isArray(days) && !days.includes(docSnap.id)) continue;
     result.scanned += 1;
     const data = docSnap.data() || {};
     if (!Array.isArray(data.entries)) {
