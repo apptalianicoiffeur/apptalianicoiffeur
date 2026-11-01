@@ -23,7 +23,7 @@ import { useCollection, useDocument } from '../hooks/useCollection';
 import { ACTIVE_STATUSES, STATUS, UPCOMING_STATUSES } from '../utils/constants';
 import { formatDateLong, timeToMin, todayISO } from '../utils/datetime';
 import { generateSlots } from '../utils/slots';
-import { queueEntriesAsBookings } from '../utils/queue';
+import { queueEntriesAsBookings, queueEntriesList, queueEntryOf } from '../utils/queue';
 import {
   clientAcceptModification,
   clientCancelBooking,
@@ -45,9 +45,10 @@ import {
 
 /** Live "today" queue banner (public, PII-free queue document). */
 function TodayQueueCard({ booking, daily }) {
-  const entry = daily?.entries?.find((e) => e.bookingId === booking.id);
+  const entries = queueEntriesList(daily);
+  const entry = queueEntryOf(daily, booking.id);
   // Position is computed among the appointments that still occupy the queue.
-  const active = (daily?.entries || []).filter((e) => ACTIVE_STATUSES.includes(e.status));
+  const active = entries.filter((e) => ACTIVE_STATUSES.includes(e.status));
   const total = active.length;
   if (!entry) {
     return (

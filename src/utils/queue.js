@@ -76,10 +76,210 @@ export function pullForwardAmount(gap, actualEndMin, nextBooking) {
   return Math.max(0, Math.min(gap, nextStart - prevEnd));
 }
 
+/* ------------------------------------------------------------------ */
+/* dailyQueue entry shape                                              */
+/*                                                                     */
+/* `dailyQueue/{date}.entries` is a Map keyed by bookingId:            */
+/*   { [bookingId]: { bookingId, expectedStart, durationMinutes,       */
+/*                    status } }                                       */
+/* The legacy Array shape (one object per element) is still accepted   */
+/* on read so nothing breaks before/while the migration runs; every    */
+/* write normalizes the document to the Map shape.                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Normalize any stored `entries` value into a plain object Map keyed by
+ * `bookingId`, REPORTING every element that cannot be carried over instead of
+ * dropping it silently.
+ *
+ * - Array (legacy): each element becomes `{ [e.bookingId]: e }`.
+ * - Map (current): re-keyed by the element's own `bookingId` so the key and
+ *   the value can never disagree (a mismatch is repaired, nothing is lost).
+ *
+ * A problem is `lossy` when an element genuinely cannot survive the
+ * normalization:
+ *   - no usable `bookingId` (it cannot be keyed at all);
+ *   - two elements claiming the same booking (one of them would be dropped);
+ *   - a value that is not an object (it is not an entry).
+ * Writers that must never destroy data (the migration, the queue publisher)
+ * check `lossy` and refuse to write, leaving the document readable in its
+ * current shape until it is repaired; `report.dropped` names the element.
+ *
+ * @param {Array|object|null|undefined} entries raw `entries` field
+ * @returns {{map: object, problems: Array<{index: (number|string), bookingId: (string|null), reason: string, lossy: boolean}>}}
+ */
+export function entriesToMapReported(entries) {
+  const map = {};
+  const problems = [];
+
+  if (entries == null) return { map, problems };
+
+  if (Array.isArray(entries)) {
+    const keptAt = new Map(); // bookingId -> index that keeps it
+    entries.forEach((e, index) => {
+      const bookingId =
+        e && typeof e === 'object' && typeof e.bookingId === 'string' && e.bookingId
+          ? e.bookingId
+          : '';
+      if (!bookingId) {
+        problems.push({
+          index,
+          bookingId: null,
+          reason: `entries[${index}] has no bookingId`,
+          lossy: true,
+        });
+        return;
+      }
+      if (keptAt.has(bookingId)) {
+        problems.push({
+          index,
+          bookingId,
+          reason: `entries[${index}] duplicates bookingId "${bookingId}" kept at entries[${keptAt.get(bookingId)}]`,
+          lossy: true,
+        });
+      }
+      keptAt.set(bookingId, index);
+      map[bookingId] = { ...e, bookingId };
+    });
+    return { map, problems };
+  }
+
+  if (typeof entries === 'object') {
+    const keptAt = new Map(); // bookingId -> key that keeps it
+    for (const [k, v] of Object.entries(entries)) {
+      if (!v || typeof v !== 'object') {
+        problems.push({
+          index: k,
+          bookingId: null,
+          reason: `entries["${k}"] is not an entry object`,
+          lossy: true,
+        });
+        continue;
+      }
+      const declared = typeof v.bookingId === 'string' && v.bookingId ? v.bookingId : '';
+      const key = declared || k;
+      if (declared && declared !== k) {
+        // Repaired below (the value adopts its key): nothing is lost.
+        problems.push({
+          index: k,
+          bookingId: declared,
+          reason: `entries["${k}"] carries a different bookingId "${declared}"`,
+          lossy: false,
+        });
+      }
+      if (keptAt.has(key)) {
+        problems.push({
+          index: k,
+          bookingId: key,
+          reason: `entries["${k}"] duplicates bookingId "${key}" kept at entries["${keptAt.get(key)}"]`,
+          lossy: true,
+        });
+      }
+      keptAt.set(key, k);
+      map[key] = { ...v, bookingId: key };
+    }
+    return { map, problems };
+  }
+
+  problems.push({
+    index: 0,
+    bookingId: null,
+    reason: 'entries is neither a list nor a map',
+    lossy: true,
+  });
+  return { map, problems };
+}
+
+/**
+ * Normalize any stored `entries` value into a plain object Map keyed by
+ * `bookingId`.
+ *
+ * Thin wrapper over `entriesToMapReported` for the read paths, which are
+ * tolerant by design and only need the usable part. Pass `onProblem` to be
+ * told about every element that had to be left out — callers that write
+ * documents back must use it so a stored entry is never dropped in silence.
+ *
+ * @param {Array|object|null|undefined} entries raw `entries` field
+ * @param {(problem: object) => void} [onProblem]
+ * @returns {object} map keyed by bookingId
+ */
+export function entriesToMap(entries, onProblem) {
+  const { map, problems } = entriesToMapReported(entries);
+  if (onProblem && problems.length) problems.forEach(onProblem);
+  return map;
+}
+
+/** True when a stored `entries` value still uses the legacy Array shape. */
+export function isLegacyEntries(entries) {
+  return Array.isArray(entries);
+}
+
+/** The entries of a `dailyQueue` document as a Map keyed by bookingId. */
+export function queueEntriesMap(daily) {
+  return entriesToMap(daily?.entries);
+}
+
+/**
+ * The entries of a `dailyQueue` document as a list in queue order
+ * (by `expectedStart`, then bookingId — the order clients are served in).
+ */
+export function queueEntriesList(daily) {
+  return Object.values(queueEntriesMap(daily)).sort((a, b) => {
+    const diff = timeToMin(a.expectedStart) - timeToMin(b.expectedStart);
+    return diff !== 0 ? diff : String(a.bookingId).localeCompare(String(b.bookingId));
+  });
+}
+
+/** The PII-free queue entry of one booking, or null when absent. */
+export function queueEntryOf(daily, bookingId) {
+  if (!bookingId) return null;
+  return queueEntriesMap(daily)[bookingId] || null;
+}
+
+/** The queue entry that must be stored for a booking document. */
+export function queueEntryFromBooking(booking) {
+  return {
+    bookingId: booking.id,
+    expectedStart: booking.expectedStart || booking.scheduledStart,
+    durationMinutes: Number(booking.durationMinutes || 30),
+    status: booking.status,
+  };
+}
+
+/** True when a stored entry already carries exactly the expected values.
+ *  Strict (no coercion) so it mirrors the equality used in firestore.rules —
+ *  anything looser would make the app skip a rewrite the rules still reject. */
+export function queueEntryMatches(entry, expected) {
+  return Boolean(
+    entry &&
+      expected &&
+      entry.bookingId === expected.bookingId &&
+      entry.expectedStart === expected.expectedStart &&
+      entry.durationMinutes === expected.durationMinutes &&
+      entry.status === expected.status
+  );
+}
+
+/**
+ * Canonical fingerprint of a queue's `entries` value (shape- and
+ * order-independent). Used to decide whether a document must be republished.
+ *
+ * @param {Array|object|null} entries raw `entries` field (Array or Map)
+ */
+export function queueEntriesKey(entries) {
+  return JSON.stringify(
+    Object.values(entriesToMap(entries))
+      .map((e) => [e.bookingId, e.expectedStart, Number(e.durationMinutes || 30), e.status])
+      .sort((a, b) => String(a[0]).localeCompare(String(b[0])))
+  );
+}
+
 /**
  * Busy intervals from a PII-free `dailyQueue/{date}` document.
  * Clients read this public document to know which slots are already taken
  * without being able to read other clients' bookings (privacy in rules).
+ *
+ * Accepts both entry shapes (legacy Array and Map).
  *
  * @param {object} daily the dailyQueue document (or null)
  * @param {object} [options]
@@ -87,7 +287,7 @@ export function pullForwardAmount(gap, actualEndMin, nextBooking) {
  * @returns {Array<{start: number, end: number}>} minutes since midnight
  */
 export function busyFromQueue(daily, { ignoreBookingId = null } = {}) {
-  return (daily?.entries || [])
+  return queueEntriesList(daily)
     .filter((e) => ACTIVE_STATUSES.includes(e.status) && e.bookingId !== ignoreBookingId)
     .map((e) => {
       const start = timeToMin(e.expectedStart);
@@ -98,9 +298,10 @@ export function busyFromQueue(daily, { ignoreBookingId = null } = {}) {
 /**
  * Reshape dailyQueue entries into the booking objects `generateSlots`
  * expects ({ id, date, status, expectedStart/End, scheduledStart/End }).
+ * Accepts both entry shapes (legacy Array and Map).
  */
 export function queueEntriesAsBookings(daily, iso, { ignoreBookingId = null } = {}) {
-  return (daily?.entries || [])
+  return queueEntriesList(daily)
     .filter((e) => ACTIVE_STATUSES.includes(e.status) && e.bookingId !== ignoreBookingId)
     .map((e) => {
       const end = addMinutes(e.expectedStart, Number(e.durationMinutes || 30));
