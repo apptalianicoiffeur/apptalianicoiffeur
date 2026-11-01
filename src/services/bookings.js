@@ -57,6 +57,19 @@ export class BookingNotFoundError extends Error {
 const bookingsCol = () => collection(db, COLLECTIONS.BOOKINGS);
 const queueRef = (date) => doc(db, COLLECTIONS.DAILY_QUEUE, date);
 
+/**
+ * Every queue read on a WRITE path goes through `entriesToMap` with this
+ * reporter: an element that cannot be keyed (no bookingId, duplicate booking,
+ * non-object) is logged instead of dropped in silence, so a corrupt legacy
+ * document is always visible in the console even though the app keeps working.
+ */
+function warnDroppedEntries(context) {
+  return (problem) => {
+    // eslint-disable-next-line no-console
+    console.warn(`bookings: ${context} — ${problem.reason}`);
+  };
+}
+
 /** Short human-friendly code shown to clients (6 chars). */
 function makeCode() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -80,7 +93,10 @@ export async function createBookingWithCheck(payload) {
     const qRef = queueRef(payload.date);
     const queueSnap = await tx.get(qRef);
     // Read both shapes: legacy Array documents are normalized on write.
-    const entries = entriesToMap(queueSnap.exists() ? queueSnap.data().entries : null);
+    const entries = entriesToMap(
+      queueSnap.exists() ? queueSnap.data().entries : null,
+      warnDroppedEntries(`dailyQueue/${payload.date}`)
+    );
 
     const conflict = busyFromQueue({ entries }).some((b) => start < b.end && b.start < end);
     if (conflict) throw new SlotTakenError();
@@ -110,7 +126,10 @@ export async function createBookingWithCheck(payload) {
  */
 export async function assertSlotFree(date, time, durationMinutes, ignoreBookingId = null) {
   const snap = await getDoc(queueRef(date));
-  const entries = entriesToMap(snap.exists() ? snap.data().entries : null);
+  const entries = entriesToMap(
+    snap.exists() ? snap.data().entries : null,
+    warnDroppedEntries(`dailyQueue/${date}`)
+  );
   const start = timeToMin(time);
   const end = start + Number(durationMinutes || 30);
   const conflict = busyFromQueue({ entries }, { ignoreBookingId }).some(
@@ -163,7 +182,7 @@ async function commitBookingChanges(changes) {
         exists,
         legacy: isLegacyEntries(raw),
         storedDate: exists ? snap.data().date : undefined,
-        entries: entriesToMap(raw),
+        entries: entriesToMap(raw, warnDroppedEntries(`dailyQueue/${date}`)),
         dirty: false,
       });
     }

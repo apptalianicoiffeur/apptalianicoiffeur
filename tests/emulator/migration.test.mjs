@@ -197,3 +197,47 @@ test('moving a booking off a legacy day removes only its own entry', async () =>
     status: 'pending',
   });
 });
+
+test('a document with duplicate bookingIds is reported and left unconverted', async () => {
+  // Two elements claim the same booking: converting it would destroy one of
+  // them in silence, so the whole document is left readable and reported.
+  const day = '2028-07-01';
+  await seedLegacyQueue(day, [
+    entry('dup', '09:00', 30, 'pending'),
+    entry('dup', '10:00', 30, 'accepted'),
+  ]);
+
+  await signInAsOwner();
+  const report = await migrateLegacyQueueDocs({ days: [day] });
+
+  assert.equal(report.migrated, 0, 'nothing may be converted when an entry would be lost');
+  assert.equal(report.skipped, 1);
+
+  const affected = report.dropped.filter((d) => d.day === day);
+  assert.equal(affected.length, 1, 'the duplicate must be named in the report');
+  assert.match(affected[0].reason, /duplicates bookingId "dup"/);
+
+  const snap = await readQueue(day);
+  assert.equal(Array.isArray(snap.data().entries), true, 'still readable in its Array shape');
+  assert.equal(snap.data().entries.length, 2, 'both elements are intact');
+});
+
+test('two migrations running at the same time do not lose data', async () => {
+  const day = '2028-07-02';
+  await seedLegacyQueue(day, [entry('p1', '09:00'), entry('p2', '09:30', 60, 'accepted')]);
+
+  await signInAsOwner();
+  const [a, b] = await Promise.all([
+    migrateLegacyQueueDocs({ days: [day] }),
+    migrateLegacyQueueDocs({ days: [day] }),
+  ]);
+
+  assert.equal(a.migrated + b.migrated, 1, 'exactly one run performs the conversion');
+  assert.equal(a.skipped + b.skipped, 1, 'the other one sees it already done');
+  assert.deepEqual(a.dropped.concat(b.dropped), []);
+
+  const entries = (await readQueue(day)).data().entries;
+  assert.equal(Array.isArray(entries), false, 'the document was converted');
+  assert.deepEqual(Object.keys(entries).sort(), ['p1', 'p2'], 'no entry may be lost');
+  assert.deepEqual(entries.p2, entry('p2', '09:30', 60, 'accepted'));
+});

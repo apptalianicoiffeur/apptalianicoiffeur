@@ -11,6 +11,7 @@ import assert from 'node:assert/strict';
 import {
   busyFromQueue,
   entriesToMap,
+  entriesToMapReported,
   isLegacyEntries,
   queueEntriesAsBookings,
   queueEntriesKey,
@@ -147,4 +148,83 @@ test('queueEntriesKey: shape- and order-independent fingerprint', () => {
   assert.equal(asArray, asMap);
   assert.equal(asArray, reordered);
   assert.notEqual(queueEntriesKey([E1]), queueEntriesKey([E2]));
+});
+
+/* ------------------------------------------------------------------ */
+/* entriesToMapReported: nothing is lost IN SILENCE                    */
+/* ------------------------------------------------------------------ */
+
+test('entriesToMapReported: a clean legacy Array produces no problem', () => {
+  const { map, problems } = entriesToMapReported([E2, E1]);
+  assert.deepEqual(problems, []);
+  assert.deepEqual(Object.keys(map).sort(), ['b1', 'b2']);
+});
+
+test('entriesToMapReported: an element without bookingId is a LOSSY problem', () => {
+  const { map, problems } = entriesToMapReported([
+    { expectedStart: '10:00', durationMinutes: 30, status: 'pending' },
+    E1,
+  ]);
+
+  assert.equal(problems.length, 1);
+  assert.equal(problems[0].index, 0);
+  assert.equal(problems[0].lossy, true);
+  assert.match(problems[0].reason, /entries\[0\] has no bookingId/);
+  // The usable entry is still carried over.
+  assert.deepEqual(Object.keys(map), ['b2']);
+});
+
+test('entriesToMapReported: two elements claiming one booking are LOSSY', () => {
+  const { map, problems } = entriesToMapReported([
+    { ...E1, status: 'pending' },
+    { ...E1, status: 'accepted' },
+  ]);
+
+  const lossy = problems.filter((p) => p.lossy);
+  assert.equal(lossy.length, 1, 'the later duplicate is the reported one');
+  assert.equal(lossy[0].index, 1);
+  assert.match(lossy[0].reason, /duplicates bookingId "b2"/);
+  // Documented behaviour of the read path: last occurrence wins.
+  assert.equal(map.b2.status, 'accepted');
+});
+
+test('entriesToMapReported: a Map key that disagrees with its value is REPAIRED', () => {
+  const { map, problems } = entriesToMapReported({ wrongKey: { ...E1 } });
+
+  assert.equal(problems.length, 1);
+  assert.equal(problems[0].lossy, false, 'nothing is lost, so it is not lossy');
+  assert.match(problems[0].reason, /carries a different bookingId "b2"/);
+  assert.deepEqual(Object.keys(map), ['b2']);
+  assert.equal(map.b2.bookingId, 'b2');
+});
+
+test('entriesToMapReported: a non-entry Map value is a LOSSY problem', () => {
+  const { map, problems } = entriesToMapReported({ b1: E2, broken: 'not-an-entry' });
+
+  assert.equal(problems.length, 1);
+  assert.equal(problems[0].index, 'broken');
+  assert.equal(problems[0].lossy, true);
+  assert.deepEqual(Object.keys(map), ['b1']);
+});
+
+test('entriesToMapReported: entries that are neither a list nor a map are reported', () => {
+  const { map, problems } = entriesToMapReported('corrupted');
+  assert.deepEqual(map, {});
+  assert.equal(problems.length, 1);
+  assert.equal(problems[0].lossy, true);
+  assert.match(problems[0].reason, /neither a list nor a map/);
+
+  // Missing/null values are simply empty (not a problem).
+  assert.deepEqual(entriesToMapReported(null), { map: {}, problems: [] });
+  assert.deepEqual(entriesToMapReported(undefined), { map: {}, problems: [] });
+  assert.deepEqual(entriesToMapReported([]), { map: {}, problems: [] });
+});
+
+test('entriesToMap: the optional onProblem callback receives every problem', () => {
+  const seen = [];
+  const map = entriesToMap([null, { ...E1 }], (p) => seen.push(p.reason));
+
+  assert.deepEqual(Object.keys(map), ['b2']);
+  assert.equal(seen.length, 1);
+  assert.match(seen[0], /entries\[0\] has no bookingId/);
 });

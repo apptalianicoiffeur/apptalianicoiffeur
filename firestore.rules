@@ -707,8 +707,31 @@ service cloud.firestore {
       // القراءة عامة: مستند خالٍ من البيانات الشخصية (لا أسماء ولا هواتف).
       allow read: if true;
 
-      // المالك يدير الطابور بالكامل (إعادة بناء، ترحيل، تنظيف).
-      allow write: if isOwner();
+      // بنية الكتابة الخاصة بالمالك: مفاتيح محددة فقط، وتاريخ مطابق
+      // لمعرّف اليوم، وentries إما Map أو Array (القديم قبل الترحيل).
+      function validOwnerQueueWrite() {
+        let d = request.resource.data;
+
+        return d.keys().hasOnly(['date', 'entries', 'updatedAt'])
+          && d.keys().hasAll(['date', 'entries', 'updatedAt'])
+
+          && d.date == day
+          && isDate(day)
+
+          // القديم (Array) مسموح حتى يُرحَّل؛ الحديث (Map) بحد أقصى 60 مدخلاً.
+          && (d.entries is list || (d.entries is map && d.entries.size() <= 60))
+
+          && d.updatedAt is timestamp;
+      }
+
+      // المالك يحذف مستند طابور (تنظيف/إعادة ضبط).
+      allow delete: if isOwner();
+
+      // المالك يعيد بناء الطابور أو يرحّله — لكن كتابته تخضع لبنية صحيحة
+      // أيضاً (بدلاً من `isOwner()` المطلق سابقاً). هذه القاعدة أشدّ صرامة
+      // من السابقة، ولا تفتح صلاحية جديدة.
+      allow create, update: if isOwner()
+        && validOwnerQueueWrite();
 
       // أول مدخل في اليوم: إنشاء وثيقة الطابور مع الحجز في المعاملة نفسها.
       allow create: if !isOwner()

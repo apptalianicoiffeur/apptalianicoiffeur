@@ -89,37 +89,124 @@ export function pullForwardAmount(gap, actualEndMin, nextBooking) {
 
 /**
  * Normalize any stored `entries` value into a plain object Map keyed by
- * `bookingId`.
+ * `bookingId`, REPORTING every element that cannot be carried over instead of
+ * dropping it silently.
  *
- * - Array (legacy): each element becomes `{ [e.bookingId]: e }`. Elements
- *   without a usable `bookingId` cannot be keyed and are dropped (they
- *   never carried a usable booking reference); duplicates keep the LAST
- *   occurrence (append order = most recent write).
+ * - Array (legacy): each element becomes `{ [e.bookingId]: e }`.
  * - Map (current): re-keyed by the element's own `bookingId` so the key and
- *   the value can never disagree.
+ *   the value can never disagree (a mismatch is repaired, nothing is lost).
+ *
+ * A problem is `lossy` when an element genuinely cannot survive the
+ * normalization:
+ *   - no usable `bookingId` (it cannot be keyed at all);
+ *   - two elements claiming the same booking (one of them would be dropped);
+ *   - a value that is not an object (it is not an entry).
+ * Writers that must never destroy data (the migration, the queue publisher)
+ * check `lossy` and refuse to write, leaving the document readable in its
+ * current shape until it is repaired; `report.dropped` names the element.
  *
  * @param {Array|object|null|undefined} entries raw `entries` field
+ * @returns {{map: object, problems: Array<{index: (number|string), bookingId: (string|null), reason: string, lossy: boolean}>}}
+ */
+export function entriesToMapReported(entries) {
+  const map = {};
+  const problems = [];
+
+  if (entries == null) return { map, problems };
+
+  if (Array.isArray(entries)) {
+    const keptAt = new Map(); // bookingId -> index that keeps it
+    entries.forEach((e, index) => {
+      const bookingId =
+        e && typeof e === 'object' && typeof e.bookingId === 'string' && e.bookingId
+          ? e.bookingId
+          : '';
+      if (!bookingId) {
+        problems.push({
+          index,
+          bookingId: null,
+          reason: `entries[${index}] has no bookingId`,
+          lossy: true,
+        });
+        return;
+      }
+      if (keptAt.has(bookingId)) {
+        problems.push({
+          index,
+          bookingId,
+          reason: `entries[${index}] duplicates bookingId "${bookingId}" kept at entries[${keptAt.get(bookingId)}]`,
+          lossy: true,
+        });
+      }
+      keptAt.set(bookingId, index);
+      map[bookingId] = { ...e, bookingId };
+    });
+    return { map, problems };
+  }
+
+  if (typeof entries === 'object') {
+    const keptAt = new Map(); // bookingId -> key that keeps it
+    for (const [k, v] of Object.entries(entries)) {
+      if (!v || typeof v !== 'object') {
+        problems.push({
+          index: k,
+          bookingId: null,
+          reason: `entries["${k}"] is not an entry object`,
+          lossy: true,
+        });
+        continue;
+      }
+      const declared = typeof v.bookingId === 'string' && v.bookingId ? v.bookingId : '';
+      const key = declared || k;
+      if (declared && declared !== k) {
+        // Repaired below (the value adopts its key): nothing is lost.
+        problems.push({
+          index: k,
+          bookingId: declared,
+          reason: `entries["${k}"] carries a different bookingId "${declared}"`,
+          lossy: false,
+        });
+      }
+      if (keptAt.has(key)) {
+        problems.push({
+          index: k,
+          bookingId: key,
+          reason: `entries["${k}"] duplicates bookingId "${key}" kept at entries["${keptAt.get(key)}"]`,
+          lossy: true,
+        });
+      }
+      keptAt.set(key, k);
+      map[key] = { ...v, bookingId: key };
+    }
+    return { map, problems };
+  }
+
+  problems.push({
+    index: 0,
+    bookingId: null,
+    reason: 'entries is neither a list nor a map',
+    lossy: true,
+  });
+  return { map, problems };
+}
+
+/**
+ * Normalize any stored `entries` value into a plain object Map keyed by
+ * `bookingId`.
+ *
+ * Thin wrapper over `entriesToMapReported` for the read paths, which are
+ * tolerant by design and only need the usable part. Pass `onProblem` to be
+ * told about every element that had to be left out — callers that write
+ * documents back must use it so a stored entry is never dropped in silence.
+ *
+ * @param {Array|object|null|undefined} entries raw `entries` field
+ * @param {(problem: object) => void} [onProblem]
  * @returns {object} map keyed by bookingId
  */
-export function entriesToMap(entries) {
-  const out = {};
-  if (!entries) return out;
-  if (Array.isArray(entries)) {
-    for (const e of entries) {
-      const key = e && typeof e === 'object' && typeof e.bookingId === 'string' ? e.bookingId : '';
-      if (key) out[key] = { ...e, bookingId: key };
-    }
-    return out;
-  }
-  if (typeof entries === 'object') {
-    for (const [k, v] of Object.entries(entries)) {
-      if (!v || typeof v !== 'object') continue;
-      const key = typeof v.bookingId === 'string' && v.bookingId ? v.bookingId : k;
-      if (!key) continue;
-      out[key] = { ...v, bookingId: key };
-    }
-  }
-  return out;
+export function entriesToMap(entries, onProblem) {
+  const { map, problems } = entriesToMapReported(entries);
+  if (onProblem && problems.length) problems.forEach(onProblem);
+  return map;
 }
 
 /** True when a stored `entries` value still uses the legacy Array shape. */
