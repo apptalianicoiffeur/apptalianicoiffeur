@@ -27,6 +27,8 @@ import {
   bookingPayload,
   db,
   expectDenied,
+  readBooking,
+  readCollection,
   readQueue,
   seedLegacyQueue,
   seedPublicSettings,
@@ -47,6 +49,10 @@ const LEGACY_DAY = '2028-06-06';
 const BROKEN_DAY = '2028-06-07';
 const CANCELLED_DAY = '2028-06-08';
 const RULES_DAY = '2028-06-09';
+const CORRUPT_CREATE_DAY = '2028-06-10';
+const CORRUPT_TARGET_DAY = '2028-06-11';
+const MOVE_FROM_DAY = '2028-06-12';
+const MISMATCH_DAY = '2028-06-13';
 
 const entry = (bookingId, expectedStart, durationMinutes = 30, status = 'pending') => ({
   bookingId,
@@ -267,4 +273,100 @@ test('the owner may still seed, migrate and delete a queue document', async () =
   // Cleanup of a day document stays allowed (the owner resets a day).
   await deleteDoc(doc(db, 'dailyQueue', RULES_DAY));
   assert.equal((await readQueue(RULES_DAY)).exists(), false);
+});
+
+/* ------------------------------------------------------------------ */
+/* Write paths refuse to convert data they would lose                  */
+/* ------------------------------------------------------------------ */
+
+/** Assert that `promise` rejects with a specific error `code`. */
+async function expectCodeError(promise, code, message, re) {
+  let err = null;
+  try {
+    await promise;
+  } catch (e) {
+    err = e;
+  }
+  assert.ok(err, `${message} — the operation unexpectedly succeeded`);
+  assert.equal(err.code, code, `${message} — got ${err.code}: ${err.message}`);
+  if (re) assert.match(err.message, re);
+  return err;
+}
+
+test('creating a booking on a corrupt day aborts instead of dropping data', async () => {
+  await seedLegacyQueue(CORRUPT_CREATE_DAY, [
+    { expectedStart: '09:00', durationMinutes: 30, status: 'pending' }, // no bookingId
+    entry('ok', '10:00', 30, 'pending'),
+  ]);
+  const before = (await readQueue(CORRUPT_CREATE_DAY)).data().entries;
+
+  await signInAsAnonymous();
+  await expectCodeError(
+    createBookingWithCheck(
+      bookingPayload({ date: CORRUPT_CREATE_DAY, time: '11:00', userId: null })
+    ),
+    'QUEUE_DATA_CORRUPT',
+    'the create transaction must refuse a lossy conversion',
+    /dailyQueue\/2028-06-10.*entries\[0\] has no bookingId/
+  );
+
+  // Nothing was written anywhere: the document is untouched and no booking
+  // was created behind the aborted transaction.
+  const after = (await readQueue(CORRUPT_CREATE_DAY)).data().entries;
+  assert.equal(Array.isArray(after), true, 'the day stays in its Array shape');
+  assert.equal(after.length, 2, 'both elements are still there');
+  assert.deepEqual(after[0], before[0]);
+
+  // Listing bookings needs the owner session (clients only see their own).
+  await signInAsOwner();
+  const orphaned = (await readCollection('bookings')).filter((b) => b.date === CORRUPT_CREATE_DAY);
+  assert.deepEqual(orphaned, [], 'the aborted transaction created no booking');
+});
+
+test('an update that touches a corrupt day aborts with both sides unchanged', async () => {
+  await seedLegacyQueue(CORRUPT_TARGET_DAY, [
+    { expectedStart: '09:00', durationMinutes: 30, status: 'pending' }, // no bookingId
+    entry('target-keep', '10:00', 30, 'pending'),
+  ]);
+
+  // A booking on a clean day, then try to move it INTO the corrupt day.
+  await signInAsAnonymous();
+  const id = await createBookingWithCheck(
+    bookingPayload({ date: MOVE_FROM_DAY, time: '09:00', userId: null })
+  );
+
+  await signInAsOwner();
+  await expectCodeError(
+    updateBooking(id, { date: CORRUPT_TARGET_DAY, scheduledStart: '10:00', expectedStart: '10:00' }),
+    'QUEUE_DATA_CORRUPT',
+    'the move transaction must refuse to rewrite a lossy document',
+    /dailyQueue\/2028-06-11/
+  );
+
+  // The booking is untouched...
+  assert.equal((await readBooking(id)).data().date, MOVE_FROM_DAY, 'the booking did not move');
+  // ...and so are both day documents.
+  const fromEntries = (await readQueue(MOVE_FROM_DAY)).data().entries;
+  assert.ok(fromEntries[id], 'the entry still lives on the source day');
+  const targetEntries = (await readQueue(CORRUPT_TARGET_DAY)).data().entries;
+  assert.equal(Array.isArray(targetEntries), true, 'the corrupt day was not rewritten');
+  assert.equal(targetEntries.length, 2, 'no element was dropped');
+});
+
+test('a key/value mismatch is repaired by a write (non-lossy policy)', async () => {
+  // The value carries bookingId `real-1` under the wrong key `wrongKey`:
+  // nothing would be lost by re-keying it, so the write must proceed.
+  await seedMapQueue(MISMATCH_DAY, {
+    wrongKey: entry('real-1', '09:00', 30, 'pending'),
+  });
+
+  await signInAsOwner();
+  const id = await createBookingWithCheck(
+    bookingPayload({ date: MISMATCH_DAY, time: '11:00', userId: null })
+  );
+
+  const entries = (await readQueue(MISMATCH_DAY)).data().entries;
+  assert.equal(entries.wrongKey, undefined, 'the wrong key is gone');
+  assert.deepEqual(entries['real-1'], entry('real-1', '09:00', 30, 'pending'), 'entry preserved');
+  assert.deepEqual(entries[id], entry(id, '11:00', 30, 'pending'), 'the new entry was added');
 });
