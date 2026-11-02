@@ -4,11 +4,12 @@
  */
 import { useState } from 'react';
 import { Link, NavLink } from 'react-router-dom';
-import { ClipboardList, LayoutDashboard, LogOut } from 'lucide-react';
+import { ClipboardList, LayoutDashboard, Link2, LogIn, LogOut, LockKeyhole } from 'lucide-react';
 import t from '../i18n/ar';
 import { useAuth } from '../context/AuthContext';
 import { useSettings } from '../context/SettingsContext';
-import { GoogleSignInButton, ShopStatusBadge, useOutsideClose } from './shared';
+import { useToast } from '../context/ToastContext';
+import { AuthModal, ShopStatusBadge, useOutsideClose } from './shared';
 import NotificationBell from './NotificationBell';
 
 const linkClass = ({ isActive }) =>
@@ -16,11 +17,14 @@ const linkClass = ({ isActive }) =>
     isActive ? 'bg-gold-500/15 text-gold-300' : 'text-slate-300 hover:bg-ink-600 hover:text-white'
   }`;
 
-function UserMenu() {
-  const { user, profile, isOwner, signOut } = useAuth();
+function UserMenu({ onLinkPassword }) {
+  const { user, profile, isOwner, signingIn, linkGoogle, signOut } = useAuth();
+  const { toast } = useToast();
   const [open, setOpen] = useState(false);
   useOutsideClose(open, () => setOpen(false));
   const initial = (profile?.name || user?.displayName || user?.email || '?').trim().charAt(0);
+  const hasPassword = user?.providerData.some((provider) => provider.providerId === 'password');
+  const hasGoogle = user?.providerData.some((provider) => provider.providerId === 'google.com');
 
   return (
     <div className="relative">
@@ -60,6 +64,32 @@ function UserMenu() {
                   {t.nav.ownerArea}
                 </Link>
               )}
+              {user?.email && !hasPassword && (
+                <button
+                  onClick={() => {
+                    setOpen(false);
+                    onLinkPassword();
+                  }}
+                  className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-bold text-slate-200 hover:bg-ink-600"
+                >
+                  <LockKeyhole size={16} />
+                  {t.auth.linkPasswordAction}
+                </button>
+              )}
+              {user?.email && !hasGoogle && (
+                <button
+                  disabled={signingIn}
+                  onClick={async () => {
+                    const result = await linkGoogle();
+                    if (result.ok) toast(t.auth.googleLinked);
+                    else toast(result.error, 'error');
+                  }}
+                  className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-bold text-slate-200 hover:bg-ink-600 disabled:opacity-40"
+                >
+                  <Link2 size={16} />
+                  {t.auth.linkGoogleAction}
+                </button>
+              )}
               <button
                 onClick={() => {
                   setOpen(false);
@@ -81,42 +111,61 @@ function UserMenu() {
 export default function Header() {
   const { settings } = useSettings();
   const { user } = useAuth();
+  const [authOpen, setAuthOpen] = useState(false);
+  const [authMode, setAuthMode] = useState('signin');
+
+  const openPasswordLink = () => {
+    setAuthMode('link');
+    setAuthOpen(true);
+  };
 
   return (
-    <header className="sticky top-0 z-30 bg-ink-900/85 backdrop-blur border-b border-ink-500/60">
-      <div className="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between gap-3">
-        <Link to="/" className="flex items-center gap-2.5 min-w-0">
-          <img src="/icons/icon.svg" alt="" className="w-10 h-10 rounded-xl shrink-0" />
-          <div className="min-w-0">
-            <p className="font-extrabold leading-tight truncate">{t.app.name}</p>
-            <p className="text-[10px] text-gold-400 font-semibold truncate">{t.app.tagline}</p>
-          </div>
-        </Link>
+    <>
+      <header className="sticky top-0 z-30 bg-ink-900/85 backdrop-blur border-b border-ink-500/60">
+        <div className="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between gap-3">
+          <Link to="/" className="flex items-center gap-2.5 min-w-0">
+            <img src="/icons/icon.svg" alt="" className="w-10 h-10 rounded-xl shrink-0" />
+            <div className="min-w-0">
+              <p className="font-extrabold leading-tight truncate">{t.app.name}</p>
+              <p className="text-[10px] text-gold-400 font-semibold truncate">{t.app.tagline}</p>
+            </div>
+          </Link>
 
-        <nav className="hidden md:flex items-center gap-1">
-          <NavLink to="/booking" className={linkClass}>
-            {t.nav.booking}
-          </NavLink>
-          {user && (
-            <NavLink to="/bookings" className={linkClass}>
-              {t.nav.myBookings}
-            </NavLink>
-          )}
-        </nav>
-
-        <div className="flex items-center gap-1.5 sm:gap-2">
-          <div className="hidden sm:block">
-            <ShopStatusBadge settings={settings} size="sm" />
-          </div>
-          {user && <NotificationBell />}
-          {user ? <UserMenu /> : <GoogleSignInButton compact className="hidden sm:inline-flex" />}
-          {!user && (
-            <Link to="/booking" className="btn-gold btn-sm sm:hidden" aria-label={t.nav.booking}>
+          <nav className="hidden md:flex items-center gap-1">
+            <NavLink to="/booking" className={linkClass}>
               {t.nav.booking}
-            </Link>
-          )}
+            </NavLink>
+            {user && (
+              <NavLink to="/bookings" className={linkClass}>
+                {t.nav.myBookings}
+              </NavLink>
+            )}
+          </nav>
+
+          <div className="flex items-center gap-1.5 sm:gap-2">
+            <div className="hidden sm:block">
+              <ShopStatusBadge settings={settings} size="sm" />
+            </div>
+            {user && <NotificationBell />}
+            {user ? (
+              <UserMenu onLinkPassword={openPasswordLink} />
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  setAuthMode('signin');
+                  setAuthOpen(true);
+                }}
+                className="btn-outline btn-sm shrink-0"
+              >
+                <LogIn size={15} />
+                {t.nav.signIn}
+              </button>
+            )}
+          </div>
         </div>
-      </div>
-    </header>
+      </header>
+      <AuthModal open={authOpen} onClose={() => setAuthOpen(false)} initialMode={authMode} />
+    </>
   );
 }

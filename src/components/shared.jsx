@@ -4,12 +4,12 @@
  */
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { CalendarOff, LogIn, ShieldAlert } from 'lucide-react';
+import { LockKeyhole, LogIn, Mail, ShieldAlert, UserRound } from 'lucide-react';
 import t from '../i18n/ar';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { DEFAULT_COUNTRY_CODE, isValidPhone, nationalPart } from '../utils/phone';
-import { EmptyState, Field, FullSpinner, Modal } from './ui';
+import { EmptyState, Field, FullSpinner, Modal, Spinner } from './ui';
 
 /** Google "G" logo (official 4-color version). */
 export function GoogleIcon({ size = 18 }) {
@@ -56,24 +56,281 @@ export function ShopStatusBadge({ settings, size = 'md' }) {
 }
 
 /** Sign in with Google button with Arabic error handling. */
-export function GoogleSignInButton({ compact = false, className = '' }) {
+export function GoogleSignInButton({ compact = false, className = '', onSuccess }) {
   const { signInWithGoogle, signingIn } = useAuth();
   const { toast } = useToast();
 
   const handle = async () => {
     const res = await signInWithGoogle();
     if (!res.ok && res.error) toast(res.error, 'error');
+    if (res.ok) onSuccess?.();
   };
 
   return (
     <button
+      type="button"
       onClick={handle}
       disabled={signingIn}
       className={`${compact ? 'btn-outline btn-sm' : 'btn-gold w-full'} ${className} bg-ink-700/60`}
     >
       <GoogleIcon size={compact ? 15 : 18} />
-      {signingIn ? t.auth.signingIn : t.nav.signIn}
+      {signingIn ? t.auth.signingIn : t.auth.signInWithGoogle}
     </button>
+  );
+}
+
+/** Sign-in, registration, password-reset, and same-UID provider-link flows. */
+export function AuthModal({ open, onClose, initialMode = 'signin' }) {
+  const {
+    user,
+    signingIn,
+    signInWithEmail,
+    createAccount,
+    resetPassword,
+    linkEmailPassword,
+  } = useAuth();
+  const [mode, setMode] = useState(initialMode);
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmation, setConfirmation] = useState('');
+  const [message, setMessage] = useState('');
+  const [success, setSuccess] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    setMode(initialMode);
+    setName('');
+    setEmail(user?.email || '');
+    setPassword('');
+    setConfirmation('');
+    setMessage('');
+    setSuccess(false);
+  }, [open, initialMode, user?.email]);
+
+  const changeMode = (nextMode) => {
+    setMode(nextMode);
+    setPassword('');
+    setConfirmation('');
+    setMessage('');
+    setSuccess(false);
+  };
+
+  const submit = async (event) => {
+    event.preventDefault();
+    setMessage('');
+    setSuccess(false);
+
+    if (
+      mode !== 'link' &&
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())
+    ) {
+      setMessage(t.auth.invalidEmail);
+      return;
+    }
+
+    if (mode !== 'reset' && !password) {
+      setMessage(t.auth.passwordRequired);
+      return;
+    }
+
+    if (mode === 'signup' && name.trim().length < 2) {
+      setMessage(t.auth.nameRequired);
+      return;
+    }
+
+    if (mode === 'signup' || mode === 'link') {
+      if (password.length < 8) {
+        setMessage(t.auth.weakPassword);
+        return;
+      }
+      if (password !== confirmation) {
+        setMessage(t.auth.passwordMismatch);
+        return;
+      }
+    }
+
+    let result;
+    if (mode === 'signup') {
+      result = await createAccount({ name, email, password });
+    } else if (mode === 'reset') {
+      result = await resetPassword(email);
+      if (result.ok) {
+        setSuccess(true);
+        setMessage(t.auth.resetSent);
+        return;
+      }
+    } else if (mode === 'link') {
+      result = await linkEmailPassword(password);
+    } else {
+      result = await signInWithEmail(email, password);
+    }
+
+    if (result.ok) {
+      if (mode === 'link') {
+        setSuccess(true);
+        setMessage(t.auth.passwordLinked);
+        return;
+      }
+      onClose();
+    } else {
+      setMessage(result.error);
+    }
+  };
+
+  const titles = {
+    signin: t.auth.signInTitle,
+    signup: t.auth.createAccount,
+    reset: t.auth.resetTitle,
+    link: t.auth.linkPasswordTitle,
+  };
+
+  return (
+    <Modal open={open} onClose={onClose} title={titles[mode]}>
+      {(mode === 'signin' || mode === 'signup') && (
+        <>
+          <GoogleSignInButton className="w-full" onSuccess={onClose} />
+          <div className="flex items-center gap-3 my-4 text-xs text-slate-500">
+            <span className="h-px flex-1 bg-ink-500" />
+            {t.auth.orEmail}
+            <span className="h-px flex-1 bg-ink-500" />
+          </div>
+        </>
+      )}
+
+      <form onSubmit={submit} className="space-y-1" noValidate>
+        {mode === 'link' && (
+          <p className="text-sm text-slate-400 mb-4">
+            {t.auth.linkPasswordBody} <span dir="ltr">{user?.email}</span>
+          </p>
+        )}
+
+        {mode === 'signup' && (
+          <Field label={t.auth.nameLabel} htmlFor="auth-name">
+            <div className="relative">
+              <UserRound size={17} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500" />
+              <input
+                id="auth-name"
+                className="input pr-10"
+                autoComplete="name"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                required
+              />
+            </div>
+          </Field>
+        )}
+
+        {mode !== 'link' && (
+          <Field label={t.auth.emailLabel} htmlFor="auth-email">
+            <div className="relative">
+              <Mail size={17} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+              <input
+                id="auth-email"
+                className="input"
+                dir="ltr"
+                type="email"
+                autoComplete="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                required
+              />
+            </div>
+          </Field>
+        )}
+
+        {mode !== 'reset' && (
+          <Field
+            label={t.auth.passwordLabel}
+            hint={(mode === 'signup' || mode === 'link') ? t.auth.passwordHint : undefined}
+            htmlFor="auth-password"
+          >
+            <div className="relative">
+              <LockKeyhole size={17} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+              <input
+                id="auth-password"
+                className="input"
+                dir="ltr"
+                type="password"
+                autoComplete={mode === 'signup' || mode === 'link' ? 'new-password' : 'current-password'}
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                required
+              />
+            </div>
+          </Field>
+        )}
+
+        {(mode === 'signup' || mode === 'link') && (
+          <Field label={t.auth.confirmPasswordLabel} htmlFor="auth-confirm-password">
+            <div className="relative">
+              <LockKeyhole size={17} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+              <input
+                id="auth-confirm-password"
+                className="input"
+                dir="ltr"
+                type="password"
+                autoComplete="new-password"
+                value={confirmation}
+                onChange={(event) => setConfirmation(event.target.value)}
+                required
+              />
+            </div>
+          </Field>
+        )}
+
+        {message && (
+          <p
+            role={success ? 'status' : 'alert'}
+            className={`text-sm leading-relaxed ${success ? 'text-emerald-300' : 'text-red-300'}`}
+          >
+            {message}
+          </p>
+        )}
+
+        <button type="submit" className="btn-gold w-full mt-2" disabled={signingIn}>
+          {signingIn && <Spinner size={17} />}
+          {signingIn
+            ? t.auth.signingIn
+            : mode === 'signup'
+              ? t.auth.createAccount
+              : mode === 'reset'
+                ? t.auth.sendReset
+                : mode === 'link'
+                  ? t.auth.linkPasswordAction
+                  : t.auth.signInTitle}
+        </button>
+      </form>
+
+      {mode === 'signin' && (
+        <div className="flex flex-wrap justify-between gap-3 mt-4 text-sm">
+          <button type="button" className="text-gold-300 hover:text-gold-200" onClick={() => changeMode('signup')}>
+            {t.auth.createAccount}
+          </button>
+          <button type="button" className="text-slate-400 hover:text-slate-200" onClick={() => changeMode('reset')}>
+            {t.auth.forgotPassword}
+          </button>
+        </div>
+      )}
+      {mode === 'signup' && (
+        <button
+          type="button"
+          className="w-full text-center text-sm text-gold-300 mt-4"
+          onClick={() => changeMode('signin')}
+        >
+          {t.auth.haveAccount}
+        </button>
+      )}
+      {mode === 'reset' && (
+        <button
+          type="button"
+          className="w-full text-center text-sm text-gold-300 mt-4"
+          onClick={() => changeMode('signin')}
+        >
+          {t.auth.backToSignIn}
+        </button>
+      )}
+    </Modal>
   );
 }
 

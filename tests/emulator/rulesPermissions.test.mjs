@@ -18,7 +18,16 @@
 import './helpers.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { deleteDoc, doc, serverTimestamp, updateDoc } from 'firebase/firestore';
+import {
+  collection,
+  deleteDoc,
+  doc,
+  getDocs,
+  query,
+  serverTimestamp,
+  updateDoc,
+  where,
+} from 'firebase/firestore';
 
 import {
   CLIENT_A_UID,
@@ -79,6 +88,26 @@ test("a client cannot read another client's booking", async () => {
   const id = await bookingOf(DAY, '10:00');
   await signInAsClient(CLIENT_B_UID, emailOf(CLIENT_B_UID));
   await expectDenied(readBooking(id), 'clients must not read foreign bookings');
+});
+
+test('a client query returns only its bookings and an empty query is valid', async () => {
+  const ownId = await bookingOf('2026-12-20', '09:00', CLIENT_A_UID);
+  const foreignId = await bookingOf('2026-12-20', '10:00', CLIENT_B_UID);
+
+  await signInAsClient(CLIENT_A_UID, emailOf(CLIENT_A_UID));
+  const ownBookings = await getDocs(
+    query(collection(db, 'bookings'), where('userId', '==', CLIENT_A_UID))
+  );
+  assert.ok(ownBookings.docs.some((booking) => booking.id === ownId));
+  assert.ok(ownBookings.docs.every((booking) => booking.data().userId === CLIENT_A_UID));
+  assert.ok(!ownBookings.docs.some((booking) => booking.id === foreignId));
+
+  const emptyUid = 'client-without-bookings';
+  await signInAs(emptyUid, { email: `${emptyUid}@example.com`, email_verified: true });
+  const emptyBookings = await getDocs(
+    query(collection(db, 'bookings'), where('userId', '==', emptyUid))
+  );
+  assert.equal(emptyBookings.size, 0);
 });
 
 test('the owner reads every booking', async () => {

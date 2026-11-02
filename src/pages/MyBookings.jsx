@@ -13,7 +13,7 @@ import {
   Users,
   XCircle,
 } from 'lucide-react';
-import { collection, doc, orderBy, query, where } from 'firebase/firestore';
+import { collection, doc, query, where } from 'firebase/firestore';
 import t from '../i18n/ar';
 import { db, COLLECTIONS } from '../services/bootstrap';
 import { useAuth } from '../context/AuthContext';
@@ -350,6 +350,23 @@ export default function MyBookings() {
 
   if (loading) return <FullSpinner />;
   if (error) return <ErrorState error={error} onRetry={refetchKey} />;
+  if (bookings.length === 0) {
+    return (
+      <div className="max-w-2xl mx-auto animate-fade-in">
+        <h1 className="text-2xl font-black mt-5 mb-4">{t.myBookings.title}</h1>
+        <EmptyState
+          icon={CalendarDays}
+          title={t.myBookings.noneAll}
+          body={t.myBookings.noneBody}
+          action={
+            <Link to="/booking" className="btn-gold btn-sm mt-2">
+              {t.landing.bookNow}
+            </Link>
+          }
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-2xl mx-auto animate-fade-in">
@@ -405,12 +422,7 @@ function useMyBookings(uid) {
   const res = useCollection(
     () =>
       db && uid
-        ? query(
-            collection(db, COLLECTIONS.BOOKINGS),
-            where('userId', '==', uid),
-            orderBy('date', 'desc'),
-            orderBy('scheduledStart', 'desc')
-          )
+        ? query(collection(db, COLLECTIONS.BOOKINGS), where('userId', '==', uid))
         : null,
     [uid, key]
   );

@@ -43,7 +43,7 @@ export default function Booking() {
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(null);
 
-  // Pre-fill name/phone from the Google profile.
+  // Pre-fill name/phone from the signed-in profile.
   useEffect(() => {
     if (profile) {
       setName((prev) => prev || profile.name || '');

@@ -11,7 +11,7 @@ import { useSettings } from '../context/SettingsContext';
 import { useServices } from '../hooks/useServices';
 import { WEEKDAY_NAMES } from '../utils/datetime';
 import ServiceCard from '../components/ServiceCard';
-import { ShopStatusBadge } from '../components/shared';
+import { GoogleSignInButton, ShopStatusBadge } from '../components/shared';
 import { EmptyState, FullSpinner } from '../components/ui';
 
 const WHY = [
@@ -75,6 +75,7 @@ export default function Landing() {
               <Scissors size={19} />
               {t.landing.bookNow}
             </Link>
+            {!user && <GoogleSignInButton className="w-full sm:w-auto" />}
             {user && (
               <Link to="/bookings" className="btn-outline w-full sm:w-auto">
                 {t.landing.viewMyBookings}

@@ -40,7 +40,7 @@
 |--------|---------|
 | الواجهة | React 18 + Vite 5 + Tailwind CSS 3 (RTL، خط Cairo) |
 | قاعدة البيانات | Cloud Firestore (تحديث لحظي عبر المستمعين) |
-| تسجيل الدخول | Firebase Authentication — Google Sign-In (+ حجز كضيف) |
+| تسجيل الدخول | Firebase Authentication — Google وEmail/Password (+ حجز كضيف) |
 | الإشعارات | Firebase Cloud Messaging + **دالة Cloudflare Pages** (`/api/send-push`) |
 | الاستضافة | Cloudflare Pages (ملفات ثابتة + دالة سيرفرلس) |
 | الكود | GitHub (كل دفع = إعادة نشر تلقائية) |
@@ -53,6 +53,7 @@
 │   ├── _redirects                # توجيه مسارات SPA في Cloudflare Pages
 │   ├── _headers                  # ترويسات أمان (CSP لـ Firebase وGoogle)
 │   ├── manifest.json             # ملف PWA (عربي، RTL)
+│   ├── app-version.json          # رقم النسخة المنشورة (يطابق package.json)
 │   ├── icons/                    # أيقونات التطبيق (SVG + نسخة Maskable)
 │   └── firebase-messaging-sw.js  # يُولَّد عند البناء — لا تعدلده
 ├── scripts/
@@ -104,8 +105,8 @@ npm run build
 1. **إنشاء مشروع**: <https://console.firebase.google.com> → *Add project* (خدمة Analytics اختيارية).
 2. **إنشاء قاعدة البيانات**: *Build → Firestore Database → Create database* → الوضع
    **Production** → اختر أقرب منطقة لمستخدميك (مثلاً `europe-west1`).
-3. **تفعيل تسجيل دخول جوجل**: *Build → Authentication → Get started → Sign-in method →
-   Google → Enable → Save*.
+3. **تفعيل طرق تسجيل الدخول**: *Build → Authentication → Get started → Sign-in method*،
+   ثم فعّل كلاً من **Google** و**Email/Password** واحفظ التغييرات.
 4. **تسجيل تطبيق ويب**: *Project settings (⚙) → General → Your apps → Web (</>) →
    Register app* → انسخ قيم الإعدادات.
 5. **إنشاء ملف `.env`** من `.env.example` وصق القيم:
@@ -131,6 +132,12 @@ npm run build
      return 'owner@example.com'; // <=== بريد الحلاق، بحروف صغيرة
    }
    ```
+
+الحسابات الجديدة تُنشأ بدور الزبون، وتُحفظ في `users/{uid}` باستخدام UID Firebase نفسه
+المستخدم في الحجوزات. يمكن لمستخدم Google إضافة كلمة مرور من قائمة الحساب؛ هذا يربط
+المزوّدين بالحساب الحالي بدلاً من إنشاء ملف مستخدم أو حجوزات منفصلة. كما يمكن للمستخدم
+الذي سجّل بالبريد ربط Google من القائمة نفسها. لا تمنح الواجهة
+صلاحية المالك؛ تظل القواعد تشترط بريد المالك الموثّق كما هو موضح في القسم 9.
 
 8. **نشر القواعد والفهارس** (ثبّت الأداة مرة واحدة):
 
