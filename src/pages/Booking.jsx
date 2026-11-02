@@ -24,7 +24,7 @@ import ServiceCard from '../components/ServiceCard';
 import DateStrip from '../components/DateStrip';
 import TimeSlotGrid from '../components/TimeSlotGrid';
 import { EmptyState, ErrorState, Field, FullSpinner, StatusChip } from '../components/ui';
-import { GoogleIcon, ShopStatusBadge } from '../components/shared';
+import { AuthModal, ShopStatusBadge } from '../components/shared';
 
 export default function Booking() {
   const { settings } = useSettings();
@@ -42,6 +42,7 @@ export default function Booking() {
   const [errors, setErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(null);
+  const [authOpen, setAuthOpen] = useState(false);
 
   // Pre-fill name/phone from the signed-in profile.
   useEffect(() => {
@@ -342,9 +343,16 @@ export default function Booking() {
                 />
               </div>
             </Field>
-            <div className="flex items-center gap-2 text-xs text-slate-400 mt-1">
-              <GoogleIcon size={14} />
-              <span>{t.auth.guestBooking}</span>
+            <div className="flex flex-wrap items-center gap-x-1.5 text-sm text-slate-400 mt-1">
+              <span>{t.auth.or}</span>
+              <button
+                type="button"
+                className="font-bold text-gold-300 underline underline-offset-2 hover:text-gold-200"
+                onClick={() => setAuthOpen(true)}
+              >
+                {t.nav.signIn}
+              </button>
+              <span>{t.auth.bookWithAccount}</span>
             </div>
           </>
         )}
@@ -368,6 +376,7 @@ export default function Booking() {
       >
         {submitting ? t.booking.submitting : t.booking.submit}
       </button>
+      <AuthModal open={authOpen} onClose={() => setAuthOpen(false)} initialMode="signin" />
     </div>
   );
 }
