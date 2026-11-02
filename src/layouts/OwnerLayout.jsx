@@ -26,6 +26,7 @@ import { migrateLegacyQueueDocs } from '../services/queueMigration';
 import { todayISO } from '../utils/datetime';
 import { playChime } from '../utils/sound';
 import { ShopStatusBadge } from '../components/shared';
+import NotificationBell from '../components/NotificationBell';
 
 const NAV = [
   { to: '/owner', end: true, icon: LayoutDashboard, label: t.owner.dashboard },
@@ -99,6 +100,7 @@ export default function OwnerLayout() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {user && <NotificationBell />}
             <ShopStatusBadge settings={settings} size="sm" />
             <Link to="/" className="btn-ghost btn-sm">
               <Store size={14} />

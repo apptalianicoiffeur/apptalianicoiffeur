@@ -12,10 +12,13 @@ export function NotificationsProvider({ children }) {
   const { user } = useAuth();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [latestId, setLatestId] = useState(null);
   const firstSnapshot = useRef(true);
+  const [retryKey, setRetryKey] = useState(0);
 
   useEffect(() => {
+    setError(null);
     if (!user) {
       setItems([]);
       setLoading(false);
@@ -25,16 +28,25 @@ export function NotificationsProvider({ children }) {
     }
     setLoading(true);
     firstSnapshot.current = true;
-    return listenNotifications(user.uid, (list) => {
-      setItems(list);
-      setLoading(false);
-      // Track the newest id so the dashboard can play a sound on new items.
-      const top = list[0]?.id || null;
-      if (!firstSnapshot.current && top && top !== latestId) setLatestId(top);
-      firstSnapshot.current = false;
-    });
+    return listenNotifications(
+      user.uid,
+      (list) => {
+        setItems(list);
+        setLoading(false);
+        // Track the newest id so the dashboard can play a sound on new items.
+        const top = list[0]?.id || null;
+        if (!firstSnapshot.current && top && top !== latestId) setLatestId(top);
+        firstSnapshot.current = false;
+      },
+      60,
+      (err) => {
+        console.error('Failed to listen to notifications.', err);
+        setError(err);
+        setLoading(false);
+      }
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.uid]);
+  }, [user?.uid, retryKey]);
 
   const unread = useMemo(() => items.filter((n) => !n.read), [items]);
 
@@ -50,12 +62,14 @@ export function NotificationsProvider({ children }) {
     () => ({
       items,
       loading,
+      error,
       unreadCount: unread.length,
       latestId,
       markAll,
       markOne,
+      retry: () => setRetryKey((current) => current + 1),
     }),
-    [items, loading, unread.length, latestId, markAll, markOne]
+    [items, loading, error, unread.length, latestId, markAll, markOne]
   );
 
   return <NotificationsCtx.Provider value={value}>{children}</NotificationsCtx.Provider>;

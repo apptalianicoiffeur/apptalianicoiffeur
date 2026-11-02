@@ -29,7 +29,8 @@ export async function getUserPushToken(uid) {
   try {
     const snap = await getDoc(doc(db, COLLECTIONS.USERS, uid));
     return snap.exists() ? snap.data()?.fcmToken || null : null;
-  } catch {
+  } catch (err) {
+    console.error('Failed to read the recipient push token.', err);
     return null;
   }
 }
@@ -72,8 +73,8 @@ async function notifyOwner(settings, title, body, bookingId) {
   // must not fail because of it.
   try {
     await createNotification({ userId: ownerUid, bookingId, title, body });
-  } catch {
-    /* in-app notification is a convenience, not part of the booking state */
+  } catch (err) {
+    console.error('Failed to notify the shop owner about a client action.', err);
   }
 }
 

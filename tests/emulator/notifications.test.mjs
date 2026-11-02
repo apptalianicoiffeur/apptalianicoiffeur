@@ -77,6 +77,36 @@ test('a client CAN notify the owner about a booking they own', async () => {
   assert.equal(created.read, false);
 });
 
+test('creating a client booking atomically notifies the owner', async () => {
+  const id = await bookingFor(CLIENT_A_UID, '09:00');
+
+  await signInAsOwner();
+  const created = (await readCollection('notifications')).find(
+    (notification) => notification.bookingId === id
+  );
+  assert.ok(created, 'a successful online booking must notify the owner');
+  assert.equal(created.userId, OWNER_UID);
+  assert.equal(created.title, 'حجز جديد');
+});
+
+test('a guest booking notifies the owner only in the booking transaction', async () => {
+  await signInAsAnonymous();
+  const id = await createBookingWithCheck(
+    bookingPayload({ date: DAY, time: '09:30', userId: null, name: 'زبون زائر' })
+  );
+
+  await signInAsAnonymous();
+  await expectDenied(
+    createNotification({
+      userId: OWNER_UID,
+      bookingId: id,
+      title: 'إشعار مكرر',
+      body: '...',
+    }),
+    'a guest cannot create another notification for an existing booking'
+  );
+});
+
 test('a client CANNOT notify another client', async () => {
   const id = await bookingFor(CLIENT_A_UID, '10:30');
   await asClient(CLIENT_A_UID);

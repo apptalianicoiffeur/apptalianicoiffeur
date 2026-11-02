@@ -20,6 +20,7 @@ import { DEFAULT_COUNTRY_CODE, normalizePhone } from '../utils/phone';
 import { dayUnbookableReason, generateSlots } from '../utils/slots';
 import { queueEntriesAsBookings } from '../utils/queue';
 import { createBookingWithCheck, SlotTakenError } from '../services/bookings';
+import { sendNewBookingPush } from '../services/push';
 import ServiceCard from '../components/ServiceCard';
 import DateStrip from '../components/DateStrip';
 import TimeSlotGrid from '../components/TimeSlotGrid';
@@ -142,6 +143,7 @@ export default function Booking() {
         notes: notes.trim(),
         source: 'online',
       });
+      void sendNewBookingPush(id);
       setDone({ id, service, date, time });
       toast(t.booking.confirmTitle);
     } catch (err) {

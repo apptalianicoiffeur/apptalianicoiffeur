@@ -21,13 +21,13 @@ import { db, COLLECTIONS } from './bootstrap';
 const col = () => collection(db, COLLECTIONS.NOTIFICATIONS);
 
 /** Subscribe to the latest notifications of a user. Returns an unsubscribe fn. */
-export function listenNotifications(uid, callback, max = 60) {
+export function listenNotifications(uid, callback, max = 60, onError = () => {}) {
   if (!uid) return () => {};
   const q = query(col(), where('userId', '==', uid), orderBy('createdAt', 'desc'), limit(max));
   return onSnapshot(
     q,
     (snap) => callback(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
-    () => callback([])
+    (err) => onError(err)
   );
 }
 

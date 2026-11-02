@@ -141,8 +141,18 @@ export function AuthProvider({ children }) {
 
   // Save the FCM token for push notifications (best effort).
   useEffect(() => {
-    if (!user || !profile || profile.fcmToken) return;
-    registerPushToken(user.uid).catch(() => {});
+    if (
+      !user ||
+      !profile ||
+      profile.fcmToken ||
+      typeof Notification === 'undefined' ||
+      Notification.permission !== 'granted'
+    ) {
+      return;
+    }
+    registerPushToken(user.uid).catch((err) => {
+      console.error('Failed to register the push notification token.', err);
+    });
   }, [user, profile]);
 
   /** Sign in with Google (popup). Returns { ok, error? } with an Arabic message. */

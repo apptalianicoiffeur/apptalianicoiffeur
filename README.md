@@ -41,8 +41,8 @@
 | الواجهة | React 18 + Vite 5 + Tailwind CSS 3 (RTL، خط Cairo) |
 | قاعدة البيانات | Cloud Firestore (تحديث لحظي عبر المستمعين) |
 | تسجيل الدخول | Firebase Authentication — Google وEmail/Password (+ حجز كضيف) |
-| الإشعارات | Firebase Cloud Messaging + **دالة Cloudflare Pages** (`/api/send-push`) |
-| الاستضافة | Cloudflare Pages (ملفات ثابتة + دالة سيرفرلس) |
+| الإشعارات | Firebase Cloud Messaging + دوال Cloudflare (`/api/send-push`, `/api/booking-created`) |
+| الاستضافة | Cloudflare Pages أو Workers Static Assets |
 | الكود | GitHub (كل دفع = إعادة نشر تلقائية) |
 | الخطة المجانية | ✅ كل شيء يعمل على خطة Firebase **Spark** المجانية (بدون Cloud Functions) |
 
@@ -59,7 +59,9 @@
 ├── scripts/
 │   ├── generate-sw.js            # يحقن إعدادات Firebase العامة داخل ملف الـ SW
 │   └── firebase-messaging-sw.template.js
-├── functions/api/send-push.js    # دالة Cloudflare Pages (FCM HTTP v1)
+├── functions/api/send-push.js    # دالة Pages لإرسال FCM HTTP v1 للمستخدم
+├── functions/api/booking-created.js # تحقق وإرسال إشعار Push للحلاق
+├── worker.js                     # يربط API بالأصول عند النشر كـ Worker
 ├── src/
 │   ├── i18n/ar.js                # ← كل النصوص العربية للواجهة هنا
 │   ├── config/firebase.js        # تهيئة Firebase من متغيرات VITE_*
@@ -161,30 +163,43 @@ npm run build
 |-------|---------|---------|
 | مركز الإشعارات داخل التطبيق (أيقونة الجرس) | مستمعات Firestore اللحظية | مجاني وفوري |
 | صوت تنبيه عند وصول طلب جديد | Web Audio داخل لوحة التحكم | مجاني |
-| إشعار Push على الجهاز | FCM HTTP v1 عبر دالة Pages `/api/send-push` | مجاني |
+| إشعار Push على الجهاز | FCM HTTP v1 عبر `/api/send-push` و`/api/booking-created` | مجاني |
 
 آلية العمل:
 
-1. المتصفح يطلب إذن الإشعارات، يسجّل ملف `public/firebase-messaging-sw.js`، ويحفظ رمز
-   FCM في `users/{uid}.fcmToken`.
-2. كل إجراء من المالك ينشئ إشعاراً داخل التطبيق **ويدعو** `/api/send-push`.
+1. يفعّل المستخدم الإشعارات من قائمة الجرس؛ عند الموافقة يسجّل التطبيق
+   `public/firebase-messaging-sw.js` ويحفظ رمز FCM في `users/{uid}.fcmToken`.
+2. ينشئ الحجز الإلكتروني إشعار الحلاق داخل معاملة Firestore نفسها، ثم يتحقق
+   `/api/booking-created` من الحجز الحديث وصاحبه قبل إرسال Push للحلاق. وكل إجراء
+   من المالك ينشئ إشعار المستخدم داخل التطبيق **ويدعو** `/api/send-push`.
 3. الدالة (`functions/api/send-push.js`) تتحقق من رمز Firebase ID الخاص بالمتصل (توقيع
    RS256 عبر Web Crypto مقابل مفاتيح Google الرسمية) وترفض أي بريد غير مطابق لـ
    `OWNER_EMAIL`. ثم توقّع JWT بحساب الخدمة وترسل الرسالة عبر FCM HTTP v1.
    لا تُستخدم سوى واجهات Web القياسية، لذا تعمل الدالة على بيئة Cloudflare Workers
    بدون أي أعلام توافق إضافية.
 
-لتفعيلها، أضف متغيري بيئة في Cloudflare Pages
-(*Settings → Environment variables*، انظر القسم 7):
+لتفعيلها، أضف متغيري البيئة التاليين في إعدادات Pages أو Worker. يحتاج حساب الخدمة
+إلى دور `Firebase Cloud Messaging API Admin` للإرسال ودور `Cloud Datastore Viewer`
+(قراءة فقط) للتحقق من الحجز ورمز الحلاق:
 
 | الاسم | القيمة |
 |-------|--------|
 | `FIREBASE_SERVICE_ACCOUNT` | **محتوى ملف JSON للخدمة بالكامل** (سطر واحد يكفي) |
 | `OWNER_EMAIL` | بريد الحلاق (نفس `VITE_OWNER_EMAIL`) |
 
-> **إذا تخطيت هذه الخطوة لن يتعطل شيء** — يكتشف التطبيق غياب النقطة النهائية ويكمل
-> العمل بالإشعارات داخل التطبيق فقط (تظهر رسالة عربية تقول إن الإشعارات الفورية
-> غير مفعلة).
+> إذا كان عنوان الموقع ينتهي بـ `workers.dev`، فيجب ضبط هذين المتغيرين في إعدادات
+> **Worker نفسه**؛ متغيرات Pages لا تنتقل تلقائياً إلى Workers.
+
+> **إذا تخطيت هذه الخطوة** تبقى إشعارات Firestore داخل التطبيق فعالة، لكن لا تصل
+> إشعارات Push إلى الجهاز.
+
+انشر `firestore.rules` المحدّثة قبل نشر الواجهة؛ فهي تسمح بإشعار الحجز داخل
+المعاملة نفسها، وتمنع توجيه إشعارات العميل إلى حسابات أخرى.
+
+عند النشر كـ **Cloudflare Worker** (رابط `workers.dev`)، يوجّه `worker.js` طلبات
+`/api/*` إلى الدالة قبل ملفات الواجهة. يتطلب ذلك نشر `wrangler.jsonc` مع الموقع
+(مثلاً `npx wrangler deploy`) وضبط المتغيرات في إعدادات الـ Worker؛ أما Cloudflare
+Pages فيستخدم `functions/api/send-push.js` تلقائياً.
 
 ## 6. رفع المشروع إلى GitHub
 
@@ -238,6 +253,10 @@ git push -u origin main
    | `OWNER_EMAIL` | *(للإشعارات فقط)* you@gmail.com |
 
    اجعل `FIREBASE_SERVICE_ACCOUNT` من نوع **Encrypt** (سرّ مشفّر).
+
+   إذا كان النشر الحالي Worker على `workers.dev`، انشر مجلد الأصول وملف Worker
+   المُعرّف في `wrangler.jsonc` باستخدام `npm run build` ثم `npx wrangler deploy`.
+   أضف `FIREBASE_SERVICE_ACCOUNT` كـ Worker secret، و`OWNER_EMAIL` كمتغير Worker.
 
 4. اضغط Deploy. كل دفع إلى `main` يعيد النشر تلقائياً، والفرعات الأخرى تحصل على روابط
    معاينة.

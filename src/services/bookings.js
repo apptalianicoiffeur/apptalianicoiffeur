@@ -34,8 +34,10 @@ import {
   where,
 } from 'firebase/firestore';
 import { db, COLLECTIONS } from './bootstrap';
+import t from '../i18n/ar';
 import { STATUS } from '../utils/constants';
 import { timeToMin } from '../utils/datetime';
+import { fillTemplate } from '../utils/whatsapp';
 import {
   busyFromQueue,
   entriesToMap,
@@ -141,6 +143,10 @@ export async function createBookingWithCheck(payload) {
   const ref = await runTransaction(db, async (tx) => {
     const qRef = queueRef(payload.date);
     const queueSnap = await tx.get(qRef);
+    const settingsSnap =
+      payload.source === 'online'
+        ? await tx.get(doc(db, COLLECTIONS.SETTINGS, 'public'))
+        : null;
     // Write path: refuses the whole transaction when the stored entries hold
     // an element the Map shape would lose (see `QueueDataCorruptedError`).
     const entries = queueEntriesForWrite(
@@ -165,6 +171,21 @@ export async function createBookingWithCheck(payload) {
     });
     // Full replace: the document only ever holds { date, entries, updatedAt }.
     tx.set(qRef, { date: payload.date, entries, updatedAt: serverTimestamp() });
+    const ownerUid = settingsSnap?.data()?.ownerUid;
+    if (typeof ownerUid === 'string' && ownerUid) {
+      const notificationRef = doc(collection(db, COLLECTIONS.NOTIFICATIONS));
+      tx.set(notificationRef, {
+        userId: ownerUid,
+        bookingId: newRef.id,
+        title: t.notifications.newBookingTitle,
+        body: fillTemplate(t.notifications.forOwnerNew, {
+          name: payload.name,
+          time: payload.scheduledStart,
+        }),
+        read: false,
+        createdAt: serverTimestamp(),
+      });
+    }
     return newRef;
   });
   return ref.id;

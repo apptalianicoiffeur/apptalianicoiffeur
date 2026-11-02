@@ -3,16 +3,56 @@
  * real-time listeners so it works instantly and for free.
  */
 import { useState } from 'react';
-import { Bell, CheckCheck } from 'lucide-react';
+import { Bell, BellRing, CheckCheck } from 'lucide-react';
 import t from '../i18n/ar';
 import { useNotifications } from '../context/NotificationsContext';
+import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
+import { registerPushToken } from '../services/push';
 import { formatRelative } from '../utils/datetime';
 import { useOutsideClose } from './shared';
 
 export default function NotificationBell() {
-  const { items, unreadCount, markAll } = useNotifications();
+  const { items, unreadCount, error, markAll, retry } = useNotifications();
+  const { user, profile } = useAuth();
+  const { toast } = useToast();
   const [open, setOpen] = useState(false);
+  const [registeringPush, setRegisteringPush] = useState(false);
   useOutsideClose(open, () => setOpen(false));
+
+  const enablePush = async () => {
+    if (registeringPush) return;
+    setRegisteringPush(true);
+    try {
+      const token = await registerPushToken(user.uid, { requestPermission: true });
+      if (token) {
+        toast(t.notifications.pushEnabled);
+      } else if (typeof Notification !== 'undefined' && Notification.permission === 'denied') {
+        toast(t.notifications.pushPermissionDenied, 'error');
+      } else {
+        toast(t.notifications.pushFailed, 'error');
+      }
+    } catch (err) {
+      console.error('Failed to enable push notifications.', err);
+      toast(
+        typeof Notification === 'undefined' || !('serviceWorker' in navigator)
+          ? t.notifications.pushUnsupported
+          : t.notifications.pushFailed,
+        'error'
+      );
+    } finally {
+      setRegisteringPush(false);
+    }
+  };
+
+  const markAllRead = async () => {
+    try {
+      await markAll();
+    } catch (err) {
+      console.error('Failed to mark notifications as read.', err);
+      toast(t.notifications.updateFailed, 'error');
+    }
+  };
 
   return (
     <div className="relative">
@@ -37,7 +77,7 @@ export default function NotificationBell() {
               <p className="font-extrabold text-sm">{t.notifications.title}</p>
               {unreadCount > 0 && (
                 <button
-                  onClick={markAll}
+                  onClick={markAllRead}
                   className="text-xs text-gold-300 font-bold flex items-center gap-1 hover:text-gold-200"
                 >
                   <CheckCheck size={14} />
@@ -46,7 +86,17 @@ export default function NotificationBell() {
               )}
             </div>
             <div className="max-h-80 overflow-y-auto overscroll-contain">
-              {items.length === 0 ? (
+              {error ? (
+                <div className="p-5 text-center">
+                  <p className="text-sm text-red-300">{t.notifications.loadFailed}</p>
+                  <button
+                    onClick={retry}
+                    className="mt-3 text-xs text-gold-300 font-bold hover:text-gold-200"
+                  >
+                    {t.notifications.retry}
+                  </button>
+                </div>
+              ) : items.length === 0 ? (
                 <p className="p-6 text-center text-sm text-slate-400">{t.notifications.empty}</p>
               ) : (
                 items.map((n) => (
@@ -63,6 +113,20 @@ export default function NotificationBell() {
                   </div>
                 ))
               )}
+            </div>
+            <div className="border-t border-ink-500/70 p-2">
+              <button
+                onClick={enablePush}
+                disabled={registeringPush}
+                className="w-full flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-xs font-bold text-gold-300 hover:bg-ink-600 disabled:opacity-50"
+              >
+                <BellRing size={14} />
+                {registeringPush
+                  ? t.notifications.pushLoading
+                  : profile?.fcmToken
+                    ? t.notifications.refreshPush
+                    : t.notifications.enablePush}
+              </button>
             </div>
           </div>
         </>

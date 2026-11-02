@@ -1,5 +1,5 @@
 /**
- * Cloudflare Pages Function: POST /api/send-push
+ * Cloudflare Pages Function / Worker handler: POST /api/send-push
  *
  * Sends a push notification through the FCM HTTP v1 API. This replaces Firebase
  * Cloud Functions so the app stays on the free Spark plan.
@@ -14,10 +14,11 @@
  * Only Web APIs are used (fetch + crypto.subtle), so the function runs on the
  * Cloudflare Workers runtime without any compatibility flags.
  *
- * Required Cloudflare environment (Pages > Settings > Environment variables):
+ * Required Cloudflare environment (Pages or Worker > Settings > Variables):
  *  - FIREBASE_SERVICE_ACCOUNT : JSON string of a Firebase service account
  *    (Project settings > Service accounts > Generate new private key).
- *    Grant it the "Firebase Cloud Messaging API Admin" role.
+ * Grant it the "Firebase Cloud Messaging API Admin" and read-only
+ * "Cloud Datastore Viewer" roles.
  *  - OWNER_EMAIL              : the barber's Google account email.
  *
  * The function degrades gracefully: if it is not configured the app keeps
@@ -32,7 +33,7 @@ const CORS_HEADERS = {
 
 const JWK_URL = 'https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com';
 
-function json(data, status = 200) {
+export function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
     headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
@@ -84,7 +85,7 @@ async function getSecureTokenKeys() {
 }
 
 /** Verify a Firebase ID token. Returns the payload or null. */
-async function verifyIdToken(idToken, projectId) {
+export async function verifyIdToken(idToken, projectId) {
   const parts = String(idToken || '').split('.');
   if (parts.length !== 3) return null;
 
@@ -142,14 +143,14 @@ function pemToDer(pem) {
 }
 
 /** Sign a JWT with the service account key (RS256, WebCrypto). */
-async function signServiceAccount(sa) {
+async function signServiceAccount(sa, scope = 'https://www.googleapis.com/auth/firebase.messaging') {
   const now = Math.floor(Date.now() / 1000);
   const header = bytesToB64url(new TextEncoder().encode(JSON.stringify({ alg: 'RS256', typ: 'JWT' })));
   const claims = bytesToB64url(
     new TextEncoder().encode(
       JSON.stringify({
         iss: sa.client_email,
-        scope: 'https://www.googleapis.com/auth/firebase.messaging',
+        scope,
         aud: 'https://oauth2.googleapis.com/token',
         iat: now,
         exp: now + 3600,
@@ -174,13 +175,13 @@ async function signServiceAccount(sa) {
 }
 
 /** Exchange the signed JWT for an OAuth access token. */
-async function getAccessToken(sa) {
+async function getAccessToken(sa, scope = 'https://www.googleapis.com/auth/firebase.messaging') {
   const res = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
       grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-      assertion: await signServiceAccount(sa),
+      assertion: await signServiceAccount(sa, scope),
     }),
   });
   const body = await res.json();
@@ -188,7 +189,7 @@ async function getAccessToken(sa) {
 }
 
 /** Send one message through FCM HTTP v1. */
-async function sendFcm(sa, token, title, body, data) {
+export async function sendFcm(sa, token, title, body, data) {
   const access = await getAccessToken(sa);
   if (!access) return false;
 
@@ -215,6 +216,30 @@ async function sendFcm(sa, token, title, body, data) {
     }),
   });
   return res.ok;
+}
+
+/** Read one Firestore REST document using a read-only service-account scope. */
+export async function readFirestoreDocument(sa, documentPath) {
+  const access = await getAccessToken(sa, 'https://www.googleapis.com/auth/datastore');
+  if (!access) throw new Error('Could not obtain a Firestore access token.');
+
+  const url =
+    `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(sa.project_id)}` +
+    `/databases/(default)/documents/${documentPath}`;
+  const response = await fetch(url, { headers: { Authorization: `Bearer ${access}` } });
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error(`Firestore lookup failed with HTTP ${response.status}.`);
+  return response.json();
+}
+
+/** Return a decoded scalar from a Firestore REST document. */
+export function firestoreField(document, name) {
+  const field = document?.fields?.[name];
+  if (!field) return undefined;
+  if ('stringValue' in field) return field.stringValue;
+  if ('timestampValue' in field) return field.timestampValue;
+  if ('nullValue' in field) return null;
+  return undefined;
 }
 
 /* ------------------------------- handler -------------------------------- */

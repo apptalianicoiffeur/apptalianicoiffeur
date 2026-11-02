@@ -462,20 +462,31 @@ service cloud.firestore {
         let settingsPath = /databases/$(database)/documents/settings/public;
         let bookingPath = /databases/$(database)/documents/bookings/$(d.bookingId);
 
-        return signedIn()
-
-          // الهدف هو المالك (منشور في الإعدادات العامة).
-          && exists(settingsPath)
+        return exists(settingsPath)
           && get(settingsPath).data.keys().hasAll(['ownerUid'])
           && get(settingsPath).data.ownerUid is string
           && get(settingsPath).data.ownerUid == d.userId
 
-          // مرتبط بحجز يملكه المرسل.
           && d.bookingId is string
           && d.bookingId.size() > 0
           && d.bookingId.size() <= 60
-          && exists(bookingPath)
-          && get(bookingPath).data.userId == request.auth.uid;
+          && existsAfter(bookingPath)
+          && getAfter(bookingPath).data.source == 'online'
+          && (
+            (
+              signedIn()
+              && getAfter(bookingPath).data.userId == request.auth.uid
+            )
+            || (
+              !exists(bookingPath)
+              && getAfter(bookingPath).data.userId == null
+              && getAfter(bookingPath).data.createdAt == request.time
+              && (
+                !signedIn()
+                || request.auth.token.firebase.sign_in_provider == 'anonymous'
+              )
+            )
+          );
       }
 
       allow read: if isOwner()
