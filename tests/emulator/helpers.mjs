@@ -238,7 +238,7 @@ export async function seedPublicSettings(extra = {}) {
     doc(db, 'settings', 'public'),
     {
       shopOpen: true,
-      shopName: 'تالياني كوفير',
+      shopName: 'طالياني كوافير',
       ownerUid: OWNER_UID,
       slotInterval: 30,
       ...extra,

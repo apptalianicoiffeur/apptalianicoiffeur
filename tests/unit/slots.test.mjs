@@ -30,6 +30,11 @@ test('withDefaults keeps the weekly hours of the defaults', () => {
   assert.equal(DEFAULT_SETTINGS.slotInterval, 30);
 });
 
+test('withDefaults updates the former default shop name while preserving custom names', () => {
+  assert.equal(withDefaults({ shopName: 'تالياني كوفير' }).shopName, 'طالياني كوافير');
+  assert.equal(withDefaults({ shopName: 'اسم مخصص' }).shopName, 'اسم مخصص');
+});
+
 test('generateSlots walks the whole open window without overlapping', () => {
   const slots = generateSlots({ settings: openSettings, iso: DAY, duration: 30 });
 

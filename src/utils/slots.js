@@ -15,7 +15,7 @@ import { addDays, addMinutes, nowMinutes, timeToMin, todayISO, weekdayOf } from 
 /** Default settings used until the owner saves real ones. */
 export const DEFAULT_SETTINGS = {
   shopOpen: false,
-  shopName: 'تالياني كوفير',
+  shopName: 'طالياني كوافير',
   phone: '',
   address: '',
   ownerUid: '',
@@ -40,6 +40,7 @@ export const DEFAULT_SETTINGS = {
 /** Merge stored settings over the defaults (missing fields fall back safely). */
 export function withDefaults(settings) {
   const s = { ...DEFAULT_SETTINGS, ...(settings || {}) };
+  if (s.shopName === 'تالياني كوفير') s.shopName = 'طالياني كوافير';
   s.weeklyHours = { ...DEFAULT_SETTINGS.weeklyHours, ...(settings?.weeklyHours || {}) };
   return s;
 }

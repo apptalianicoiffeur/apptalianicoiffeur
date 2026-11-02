@@ -20,7 +20,7 @@ const messaging = firebase.messaging();
 
 /** Show background messages as browser notifications (Arabic, RTL). */
 messaging.onBackgroundMessage((payload) => {
-  const title = (payload && payload.notification && payload.notification.title) || 'تالياني كوفير';
+  const title = (payload && payload.notification && payload.notification.title) || 'طالياني كوافير';
   const body = (payload && payload.notification && payload.notification.body) || '';
   self.registration.showNotification(title, {
     body,

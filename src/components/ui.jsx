@@ -96,6 +96,49 @@ export function Modal({ open, onClose, title, children, footer, wide = false }) 
   );
 }
 
+/** Styled confirmation dialog for destructive or irreversible actions. */
+export function ConfirmDialog({
+  open,
+  onClose,
+  onConfirm,
+  title,
+  message,
+  confirmLabel = t.app.confirm,
+  cancelLabel = t.app.cancel,
+  busy = false,
+}) {
+  return (
+    <Modal
+      open={open}
+      onClose={busy ? undefined : onClose}
+      title={title}
+      footer={
+        <div className="flex gap-2">
+          <button type="button" className="btn-ghost flex-1" onClick={onClose} disabled={busy}>
+            {cancelLabel}
+          </button>
+          <button
+            type="button"
+            className="btn-danger flex-1"
+            onClick={onConfirm}
+            disabled={busy}
+          >
+            {busy ? <Spinner size={16} /> : <AlertTriangle size={16} />}
+            {busy ? t.app.loading : confirmLabel}
+          </button>
+        </div>
+      }
+    >
+      <div className="flex items-start gap-3">
+        <div className="w-11 h-11 rounded-2xl bg-red-500/10 border border-red-500/25 text-red-300 flex items-center justify-center shrink-0">
+          <AlertTriangle size={21} />
+        </div>
+        <p className="text-sm text-slate-300 leading-relaxed pt-1.5">{message}</p>
+      </div>
+    </Modal>
+  );
+}
+
 /** Form field wrapper with label + error message. */
 export function Field({ label, error, hint, children, htmlFor }) {
   return (

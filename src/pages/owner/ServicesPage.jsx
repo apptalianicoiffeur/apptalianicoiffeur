@@ -9,7 +9,15 @@ import t from '../../i18n/ar';
 import { db, COLLECTIONS } from '../../services/bootstrap';
 import { useToast } from '../../context/ToastContext';
 import { useServices } from '../../hooks/useServices';
-import { Field, Modal, Spinner, Toggle, EmptyState, FullSpinner } from '../../components/ui';
+import {
+  ConfirmDialog,
+  EmptyState,
+  Field,
+  FullSpinner,
+  Modal,
+  Spinner,
+  Toggle,
+} from '../../components/ui';
 import ServiceCard from '../../components/ServiceCard';
 
 /** Add / edit form modal. */
@@ -121,6 +129,8 @@ export default function ServicesPage() {
   const { toast } = useToast();
   const { data: services, loading } = useServices({ all: true });
   const [modal, setModal] = useState({ open: false, service: null });
+  const [deleteService, setDeleteService] = useState(null);
+  const [deleting, setDeleting] = useState(false);
 
   const toggleActive = async (service) => {
     try {
@@ -130,13 +140,17 @@ export default function ServicesPage() {
     }
   };
 
-  const remove = async (service) => {
-    if (!window.confirm(t.owner.serviceDeleteConfirm)) return;
+  const remove = async () => {
+    if (!deleteService) return;
+    setDeleting(true);
     try {
-      await deleteDoc(doc(db, COLLECTIONS.SERVICES, service.id));
+      await deleteDoc(doc(db, COLLECTIONS.SERVICES, deleteService.id));
       toast(t.owner.serviceDeleted);
+      setDeleteService(null);
     } catch {
       toast(t.errors.actionFailed, 'error');
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -182,7 +196,7 @@ export default function ServicesPage() {
                   >
                     <Pencil size={14} /> {t.app.edit}
                   </button>
-                  <button className="btn-danger btn-sm" onClick={() => remove(s)}>
+                  <button className="btn-danger btn-sm" onClick={() => setDeleteService(s)}>
                     <Trash2 size={14} /> {t.app.delete}
                   </button>
                 </div>
@@ -196,6 +210,15 @@ export default function ServicesPage() {
         open={modal.open}
         service={modal.service}
         onClose={() => setModal({ open: false, service: null })}
+      />
+      <ConfirmDialog
+        open={Boolean(deleteService)}
+        onClose={() => setDeleteService(null)}
+        onConfirm={remove}
+        title={t.app.delete}
+        message={t.owner.serviceDeleteConfirm}
+        confirmLabel={t.app.delete}
+        busy={deleting}
       />
     </div>
   );

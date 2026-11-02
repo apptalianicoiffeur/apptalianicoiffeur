@@ -36,6 +36,7 @@ import DateStrip from '../components/DateStrip';
 import TimeSlotGrid from '../components/TimeSlotGrid';
 import {
   EmptyState,
+  ConfirmDialog,
   ErrorState,
   FullSpinner,
   Modal,
@@ -162,6 +163,7 @@ function BookingCard({ booking, settings }) {
   const { toast } = useToast();
   const [busy, setBusy] = useState(false);
   const [proposeOpen, setProposeOpen] = useState(false);
+  const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
 
   const now = todayISO();
   const isFuture = booking.date >= now;
@@ -288,11 +290,7 @@ function BookingCard({ booking, settings }) {
         {showCancel && !busy && (
           <button
             className="btn-danger btn-sm"
-            onClick={() => {
-              if (window.confirm(t.myBookings.cancelConfirm)) {
-                run(() => clientCancelBooking(booking, settings), t.myBookings.cancelled);
-              }
-            }}
+            onClick={() => setCancelConfirmOpen(true)}
           >
             {t.myBookings.cancelBooking}
           </button>
@@ -316,6 +314,18 @@ function BookingCard({ booking, settings }) {
           await run(() => clientProposeTime(booking, { date, time }, settings), t.myBookings.proposedSent);
           setProposeOpen(false);
         }}
+      />
+      <ConfirmDialog
+        open={cancelConfirmOpen}
+        onClose={() => setCancelConfirmOpen(false)}
+        onConfirm={async () => {
+          await run(() => clientCancelBooking(booking, settings), t.myBookings.cancelled);
+          setCancelConfirmOpen(false);
+        }}
+        title={t.myBookings.cancelBooking}
+        message={t.myBookings.cancelConfirm}
+        confirmLabel={t.myBookings.cancelBooking}
+        busy={busy}
       />
     </div>
   );
