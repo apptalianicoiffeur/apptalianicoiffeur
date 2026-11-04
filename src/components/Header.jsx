@@ -19,6 +19,7 @@ import { useSettings } from '../context/SettingsContext';
 import { useToast } from '../context/ToastContext';
 import { AuthModal, ShopStatusBadge, useOutsideClose } from './shared';
 import NotificationBell from './NotificationBell';
+import ThemeToggle from './ThemeToggle';
 
 const linkClass = ({ isActive }) =>
   `px-3 py-2 rounded-xl text-sm font-bold transition-colors ${
@@ -159,6 +160,7 @@ export default function Header() {
           </nav>
 
           <div className="flex items-center gap-1.5 sm:gap-2">
+            <ThemeToggle />
             <div className="hidden sm:block">
               <ShopStatusBadge settings={settings} size="sm" />
             </div>

@@ -5,12 +5,64 @@
 /* ------------------------------------------------------------------ */
 /* Global base styles (RTL, dark theme, Arabic font)                   */
 /* ------------------------------------------------------------------ */
+:root {
+  color-scheme: dark;
+  --color-ink-950: 7 8 11;
+  --color-ink-900: 11 12 16;
+  --color-ink-800: 16 18 24;
+  --color-ink-700: 21 23 29;
+  --color-ink-600: 27 30 38;
+  --color-ink-500: 35 38 47;
+  --color-ink-400: 46 50 61;
+  --color-slate-100: 241 245 249;
+  --color-slate-200: 226 232 240;
+  --color-slate-300: 203 213 225;
+  --color-slate-400: 148 163 184;
+  --color-slate-500: 100 116 139;
+  --color-gold-200: 244 227 174;
+  --color-gold-300: 235 212 140;
+  --color-red-200: 254 202 202;
+  --color-red-300: 252 165 165;
+  --color-red-400: 248 113 113;
+  --color-emerald-200: 167 243 208;
+  --color-emerald-300: 110 231 183;
+  --color-emerald-400: 52 211 153;
+  --shadow-card: 0 8px 30px rgba(0, 0, 0, 0.35);
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --color-ink-950: 255 255 255;
+  --color-ink-900: 248 249 251;
+  --color-ink-800: 255 255 255;
+  --color-ink-700: 241 243 246;
+  --color-ink-600: 232 235 239;
+  --color-ink-500: 215 220 227;
+  --color-ink-400: 190 197 207;
+  --color-slate-100: 24 29 38;
+  --color-slate-200: 43 49 59;
+  --color-slate-300: 61 68 80;
+  --color-slate-400: 71 80 96;
+  --color-slate-500: 75 85 99;
+  --color-gold-200: 116 83 11;
+  --color-gold-300: 128 91 8;
+  --color-red-200: 153 27 27;
+  --color-red-300: 185 28 28;
+  --color-red-400: 185 28 28;
+  --color-emerald-200: 6 95 70;
+  --color-emerald-300: 4 120 87;
+  --color-emerald-400: 4 120 87;
+  --shadow-card: 0 8px 30px rgba(30, 41, 59, 0.12);
+}
+
 @layer base {
   html {
     -webkit-tap-highlight-color: transparent;
   }
   body {
-    @apply bg-ink-900 text-slate-100 font-sans antialiased;
+    @apply font-sans antialiased;
+    background-color: rgb(var(--color-ink-900));
+    color: rgb(var(--color-slate-100));
     min-height: 100dvh;
   }
   ::selection {
@@ -40,7 +92,9 @@
 /* ------------------------------------------------------------------ */
 @layer components {
   .card {
-    @apply bg-ink-800 border border-ink-500/70 rounded-2xl shadow-card;
+    @apply border rounded-2xl shadow-card;
+    background-color: rgb(var(--color-ink-800));
+    border-color: rgb(var(--color-ink-500) / 0.7);
   }
   .btn {
     @apply inline-flex items-center justify-center gap-2 rounded-xl font-bold
@@ -48,15 +102,21 @@
       active:scale-[0.97] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold-400/70;
   }
   .btn-gold {
-    @apply btn bg-gradient-to-b from-gold-400 to-gold-600 text-ink-950 px-5 py-3 text-base
+    @apply btn bg-gradient-to-b from-gold-400 to-gold-600 px-5 py-3 text-base
       hover:from-gold-300 hover:to-gold-500 shadow-glow;
+    color: #07080b;
   }
   .btn-outline {
-    @apply btn border border-gold-500/50 text-gold-300 px-5 py-3 text-base
+    @apply btn border border-gold-500/50 px-5 py-3 text-base
       hover:bg-gold-500/10 hover:border-gold-400;
+    color: rgb(var(--color-gold-300));
   }
   .btn-ghost {
-    @apply btn text-slate-300 px-4 py-2.5 text-sm hover:bg-ink-600;
+    @apply btn px-4 py-2.5 text-sm;
+    color: rgb(var(--color-slate-300));
+  }
+  .btn-ghost:hover {
+    background-color: rgb(var(--color-ink-600));
   }
   .btn-danger {
     @apply btn border border-red-500/40 text-red-300 px-4 py-2.5 text-sm hover:bg-red-500/10;
@@ -68,18 +128,26 @@
     @apply px-3 py-2 text-xs rounded-lg;
   }
   .input {
-    @apply w-full rounded-xl bg-ink-700 border border-ink-500 px-4 py-3 text-base text-slate-100
-      placeholder:text-slate-500 focus:outline-none focus:border-gold-500/70 focus:ring-2
+    @apply w-full rounded-xl border px-4 py-3 text-base
+      focus:outline-none focus:border-gold-500/70 focus:ring-2
       focus:ring-gold-500/20 transition-colors;
+    background-color: rgb(var(--color-ink-700));
+    border-color: rgb(var(--color-ink-500));
+    color: rgb(var(--color-slate-100));
+  }
+  .input::placeholder {
+    color: rgb(var(--color-slate-500));
   }
   .label {
-    @apply block text-sm font-semibold text-slate-300 mb-1.5;
+    @apply block text-sm font-semibold mb-1.5;
+    color: rgb(var(--color-slate-300));
   }
   .chip {
     @apply inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold;
   }
   .section-title {
-    @apply text-lg font-extrabold text-slate-100 flex items-center gap-2;
+    @apply text-lg font-extrabold flex items-center gap-2;
+    color: rgb(var(--color-slate-100));
   }
   /* Barber-pole style divider, a nod to classic barber shops */
   .barber-divider {
@@ -88,6 +156,13 @@
       -45deg,
       #d4af37 0 12px,
       #15171d 12px 24px
+    );
+  }
+  :root[data-theme='light'] .barber-divider {
+    background: repeating-linear-gradient(
+      -45deg,
+      #d4af37 0 12px,
+      #e6e9ed 12px 24px
     );
   }
   .no-scrollbar::-webkit-scrollbar {
@@ -106,5 +181,8 @@
   }
   .text-balance {
     text-wrap: balance;
+  }
+  .text-ink-950 {
+    color: #07080b;
   }
 }

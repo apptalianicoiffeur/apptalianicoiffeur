@@ -14,6 +14,7 @@ import { ToastProvider } from './context/ToastContext';
 import { AuthProvider } from './context/AuthContext';
 import { SettingsProvider } from './context/SettingsContext';
 import { NotificationsProvider } from './context/NotificationsContext';
+import { ThemeProvider } from './context/ThemeContext';
 import ClientLayout from './layouts/ClientLayout';
 import OwnerLayout from './layouts/OwnerLayout';
 import { RequireAuth, RequireOwner } from './components/shared';
@@ -49,12 +50,13 @@ export default function App() {
   if (!isFirebaseConfigured) return <SetupNotice />;
 
   return (
-    <ToastProvider>
-      <AuthProvider>
-        <SettingsProvider>
-          <NotificationsProvider>
-            <BrowserRouter>
-              <Routes>
+    <ThemeProvider>
+      <ToastProvider>
+        <AuthProvider>
+          <SettingsProvider>
+            <NotificationsProvider>
+              <BrowserRouter>
+                <Routes>
                 <Route element={<ClientLayout />}>
                   <Route path="/" element={<Landing />} />
                   <Route path="/booking" element={<Booking />} />
@@ -94,11 +96,12 @@ export default function App() {
                 </Route>
 
                 <Route path="*" element={<NotFound />} />
-              </Routes>
-            </BrowserRouter>
-          </NotificationsProvider>
-        </SettingsProvider>
-      </AuthProvider>
-    </ToastProvider>
+                </Routes>
+              </BrowserRouter>
+            </NotificationsProvider>
+          </SettingsProvider>
+        </AuthProvider>
+      </ToastProvider>
+    </ThemeProvider>
   );
 }

@@ -56,6 +56,11 @@ const t = {
     skipToContent: 'تخطي إلى المحتوى',
   },
 
+  theme: {
+    switchToLight: 'التبديل إلى الوضع النهاري',
+    switchToDark: 'التبديل إلى الوضع الليلي',
+  },
+
   auth: {
     signInWithGoogle: 'تسجيل الدخول باستخدام Google',
     signInTitle: 'تسجيل الدخول',

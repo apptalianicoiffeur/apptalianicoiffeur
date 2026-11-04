@@ -9,20 +9,37 @@ export default {
         sans: ['Cairo', 'system-ui', 'sans-serif'],
       },
       colors: {
-        // Neutral dark surfaces
+        // Theme-aware surfaces; values are switched by ThemeProvider.
         ink: {
-          950: '#07080B',
-          900: '#0B0C10',
-          800: '#101218',
-          700: '#15171D',
-          600: '#1B1E26',
-          500: '#23262F',
-          400: '#2E323D',
+          950: 'rgb(var(--color-ink-950) / <alpha-value>)',
+          900: 'rgb(var(--color-ink-900) / <alpha-value>)',
+          800: 'rgb(var(--color-ink-800) / <alpha-value>)',
+          700: 'rgb(var(--color-ink-700) / <alpha-value>)',
+          600: 'rgb(var(--color-ink-600) / <alpha-value>)',
+          500: 'rgb(var(--color-ink-500) / <alpha-value>)',
+          400: 'rgb(var(--color-ink-400) / <alpha-value>)',
+        },
+        slate: {
+          100: 'rgb(var(--color-slate-100) / <alpha-value>)',
+          200: 'rgb(var(--color-slate-200) / <alpha-value>)',
+          300: 'rgb(var(--color-slate-300) / <alpha-value>)',
+          400: 'rgb(var(--color-slate-400) / <alpha-value>)',
+          500: 'rgb(var(--color-slate-500) / <alpha-value>)',
+        },
+        red: {
+          200: 'rgb(var(--color-red-200) / <alpha-value>)',
+          300: 'rgb(var(--color-red-300) / <alpha-value>)',
+          400: 'rgb(var(--color-red-400) / <alpha-value>)',
+        },
+        emerald: {
+          200: 'rgb(var(--color-emerald-200) / <alpha-value>)',
+          300: 'rgb(var(--color-emerald-300) / <alpha-value>)',
+          400: 'rgb(var(--color-emerald-400) / <alpha-value>)',
         },
         // Brand gold
         gold: {
-          200: '#F4E3AE',
-          300: '#EBD48C',
+          200: 'rgb(var(--color-gold-200) / <alpha-value>)',
+          300: 'rgb(var(--color-gold-300) / <alpha-value>)',
           400: '#E0BC5C',
           500: '#D4AF37',
           600: '#B8952B',
@@ -31,7 +48,7 @@ export default {
       },
       boxShadow: {
         glow: '0 0 24px rgba(212, 175, 55, 0.25)',
-        card: '0 8px 30px rgba(0, 0, 0, 0.35)',
+        card: 'var(--shadow-card)',
       },
       keyframes: {
         'fade-up': {
