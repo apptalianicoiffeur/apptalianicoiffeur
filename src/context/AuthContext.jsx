@@ -277,6 +277,26 @@ export function AuthProvider({ children }) {
     [user]
   );
 
+  /** Save editable personal details on the current user's profile. */
+  const saveProfile = useCallback(
+    async ({ name, phone: inputPhone }) => {
+      if (!user || !db) throw new Error('not signed in');
+      const trimmedName = String(name || '').trim();
+      if (trimmedName.length < 3 || trimmedName.length > 80) {
+        throw new Error('invalid name');
+      }
+      const phone = inputPhone ? normalizePhone(inputPhone) : '';
+      if (inputPhone && !phone) throw new Error('invalid phone');
+      await updateDoc(doc(db, COLLECTIONS.USERS, user.uid), {
+        name: trimmedName,
+        phone,
+        phoneAsked: true,
+      });
+      setPhonePrompt(false);
+    },
+    [user]
+  );
+
   /** Remember that the phone dialog was skipped (it will not be asked again). */
   const skipPhoneAsk = useCallback(async () => {
     setPhonePrompt(false);
@@ -302,6 +322,7 @@ export function AuthProvider({ children }) {
       linkGoogle,
       signOut,
       savePhone,
+      saveProfile,
       skipPhoneAsk,
       askPhone,
       // True for a Google user who never gave a phone number yet (or when the
@@ -325,6 +346,7 @@ export function AuthProvider({ children }) {
       linkGoogle,
       signOut,
       savePhone,
+      saveProfile,
       skipPhoneAsk,
       askPhone,
     ]

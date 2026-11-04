@@ -2,7 +2,7 @@
  * Mobile bottom navigation (touch friendly, safe-area aware).
  */
 import { NavLink } from 'react-router-dom';
-import { CalendarPlus, ClipboardList, Home, LayoutDashboard } from 'lucide-react';
+import { CalendarPlus, ClipboardList, Home, LayoutDashboard, UserRound } from 'lucide-react';
 import t from '../i18n/ar';
 import { useAuth } from '../context/AuthContext';
 
@@ -10,6 +10,7 @@ const items = [
   { to: '/', icon: Home, label: t.nav.home, end: true },
   { to: '/booking', icon: CalendarPlus, label: t.nav.booking },
   { to: '/bookings', icon: ClipboardList, label: t.nav.myBookings, auth: true },
+  { to: '/profile', icon: UserRound, label: t.nav.profileSettings, auth: true },
 ];
 
 export default function BottomNav() {

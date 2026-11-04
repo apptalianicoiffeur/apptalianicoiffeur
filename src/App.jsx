@@ -20,6 +20,7 @@ import { RequireAuth, RequireOwner } from './components/shared';
 import Landing from './pages/Landing';
 import Booking from './pages/Booking';
 import MyBookings from './pages/MyBookings';
+import ProfilePage from './pages/ProfilePage';
 import NotFound from './pages/NotFound';
 import Dashboard from './pages/owner/Dashboard';
 import Requests from './pages/owner/Requests';
@@ -62,6 +63,14 @@ export default function App() {
                     element={
                       <RequireAuth>
                         <MyBookings />
+                      </RequireAuth>
+                    }
+                  />
+                  <Route
+                    path="/profile"
+                    element={
+                      <RequireAuth>
+                        <ProfilePage />
                       </RequireAuth>
                     }
                   />

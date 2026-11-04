@@ -4,7 +4,15 @@
  */
 import { useState } from 'react';
 import { Link, NavLink } from 'react-router-dom';
-import { ClipboardList, LayoutDashboard, Link2, LogIn, LogOut, LockKeyhole } from 'lucide-react';
+import {
+  ClipboardList,
+  LayoutDashboard,
+  Link2,
+  LogIn,
+  LogOut,
+  LockKeyhole,
+  UserRound,
+} from 'lucide-react';
 import t from '../i18n/ar';
 import { useAuth } from '../context/AuthContext';
 import { useSettings } from '../context/SettingsContext';
@@ -53,6 +61,14 @@ function UserMenu({ onLinkPassword }) {
               >
                 <ClipboardList size={16} />
                 {t.nav.myBookings}
+              </Link>
+              <Link
+                to="/profile"
+                onClick={() => setOpen(false)}
+                className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-bold text-slate-200 hover:bg-ink-600"
+              >
+                <UserRound size={16} />
+                {t.nav.profileSettings}
               </Link>
               {isOwner && (
                 <Link
