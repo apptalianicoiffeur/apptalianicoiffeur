@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   DEFAULT_SETTINGS,
+  getBlocksForDate,
   generateSlots,
   withDefaults,
 } from '../../src/utils/slots';
@@ -77,4 +78,29 @@ test('generateSlots marks taken slots as unavailable', () => {
 test('generateSlots returns no slots on a closed day', () => {
   const closed = withDefaults({ shopOpen: true, closedWeekdays: [weekdayOf(DAY)] });
   assert.deepEqual(generateSlots({ settings: closed, iso: DAY, duration: 30 }), []);
+});
+
+test('date-range blocks close every included day but leave dates outside the range unchanged', () => {
+  const startDate = addDays(DAY, -1);
+  const endDate = addDays(DAY, 1);
+  const settings = withDefaults({
+    shopOpen: true,
+    blockedSlots: [{ startDate, endDate, allDay: true, reason: 'إجازة' }],
+  });
+
+  assert.equal(getBlocksForDate(settings, DAY)[0].start, '00:00');
+  assert.equal(getBlocksForDate(settings, DAY)[0].end, '24:00');
+  assert.equal(getBlocksForDate(settings, addDays(startDate, -1)).length, 0);
+  assert.equal(generateSlots({ settings, iso: DAY, duration: 30 }).every((slot) => !slot.available), true);
+});
+
+test('single-day time blocks keep their existing behavior', () => {
+  const settings = withDefaults({
+    shopOpen: true,
+    blockedSlots: [{ date: DAY, start: '10:00', end: '11:00' }],
+  });
+  const slots = generateSlots({ settings, iso: DAY, duration: 30 });
+
+  assert.equal(slots.find((slot) => slot.time === '10:00').reason, 'blocked');
+  assert.equal(slots.find((slot) => slot.time === '11:00').available, true);
 });

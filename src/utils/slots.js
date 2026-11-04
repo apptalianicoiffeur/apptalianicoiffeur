@@ -34,7 +34,7 @@ export const DEFAULT_SETTINGS = {
     6: { closed: false, open: '09:00', close: '21:00' },
   },
   breaks: {}, // { weekdayIndex: [{ start, end }] }
-  blockedSlots: [], // [{ date, start, end, reason }]
+  blockedSlots: [], // [{ date, start, end, reason }] or { startDate, endDate, allDay, reason }
 };
 
 /** Merge stored settings over the defaults (missing fields fall back safely). */
@@ -62,7 +62,15 @@ export function getBreaksForDate(settings, iso) {
 
 /** Blocked slots for a date. */
 export function getBlocksForDate(settings, iso) {
-  return (settings.blockedSlots || []).filter((b) => b.date === iso);
+  return (settings.blockedSlots || [])
+    .filter((block) =>
+      block.allDay
+        ? block.startDate <= iso && iso <= block.endDate
+        : block.date === iso
+    )
+    .map((block) =>
+      block.allDay ? { ...block, start: '00:00', end: '24:00' } : block
+    );
 }
 
 /** True when [startMin, endMin) intersects any of the given windows. */

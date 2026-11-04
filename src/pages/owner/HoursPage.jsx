@@ -8,7 +8,7 @@ import { Coffee, Lock, Plus, RotateCcw, Save, Trash2 } from 'lucide-react';
 import t from '../../i18n/ar';
 import { useSettings } from '../../context/SettingsContext';
 import { useToast } from '../../context/ToastContext';
-import { minToTime, todayISO, WEEKDAY_NAMES } from '../../utils/datetime';
+import { minToTime, timeToMin, todayISO, WEEKDAY_NAMES } from '../../utils/datetime';
 import { Field, FullSpinner, Spinner, Toggle } from '../../components/ui';
 
 /** All 15-minute time options from 06:00 to 23:45. */
@@ -52,7 +52,15 @@ export default function HoursPage() {
   const [draft, setDraft] = useState(null);
   const [busy, setBusy] = useState(false);
   const [newDayOff, setNewDayOff] = useState('');
-  const [block, setBlock] = useState({ date: todayISO(), start: '10:00', end: '11:00', reason: '' });
+  const [blockMode, setBlockMode] = useState('time');
+  const [block, setBlock] = useState({
+    date: todayISO(),
+    startDate: todayISO(),
+    endDate: todayISO(),
+    start: '10:00',
+    end: '11:00',
+    reason: '',
+  });
   const initedRef = useRef(false);
 
   // Initialize the draft ONCE when the real settings arrive: any later
@@ -101,14 +109,45 @@ export default function HoursPage() {
   };
 
   const addBlock = () => {
-    if (!block.date || !block.start || !block.end) return;
+    let newBlock;
+    if (blockMode === 'range') {
+      if (!block.startDate || !block.endDate || block.startDate > block.endDate) {
+        toast(t.owner.blockInvalidDateRange, 'error');
+        return;
+      }
+      newBlock = {
+        startDate: block.startDate,
+        endDate: block.endDate,
+        allDay: true,
+        reason: block.reason.trim(),
+      };
+    } else {
+      if (!block.date || !block.start || !block.end || timeToMin(block.start) >= timeToMin(block.end)) {
+        toast(t.owner.blockInvalidTimeRange, 'error');
+        return;
+      }
+      newBlock = {
+        date: block.date,
+        start: block.start,
+        end: block.end,
+        reason: block.reason.trim(),
+      };
+    }
+
     setDraft((d) => ({
       ...d,
-      blockedSlots: [...d.blockedSlots, { ...block, reason: block.reason.trim() }].sort((a, b) =>
-        a.date.localeCompare(b.date)
+      blockedSlots: [...d.blockedSlots, newBlock].sort((a, b) =>
+        (a.startDate || a.date).localeCompare(b.startDate || b.date)
       ),
     }));
-    setBlock({ date: todayISO(), start: '10:00', end: '11:00', reason: '' });
+    setBlock({
+      date: todayISO(),
+      startDate: todayISO(),
+      endDate: todayISO(),
+      start: '10:00',
+      end: '11:00',
+      reason: '',
+    });
   };
 
   const save = async () => {
@@ -255,15 +294,65 @@ export default function HoursPage() {
 
         <div className="bg-ink-700/50 rounded-2xl p-3 mb-3 space-y-2">
           <div className="grid grid-cols-2 gap-2">
-            <div>
-              <p className="text-[11px] text-slate-400 mb-1">{t.owner.blockDate}</p>
-              <input
-                type="date"
-                className="input py-2 text-sm"
-                value={block.date}
-                onChange={(e) => setBlock({ ...block, date: e.target.value })}
-              />
-            </div>
+            <button
+              type="button"
+              className={`btn btn-sm ${blockMode === 'time' ? 'btn-gold' : 'btn-ghost'}`}
+              onClick={() => setBlockMode('time')}
+            >
+              {t.owner.blockSingleDay}
+            </button>
+            <button
+              type="button"
+              className={`btn btn-sm ${blockMode === 'range' ? 'btn-gold' : 'btn-ghost'}`}
+              onClick={() => setBlockMode('range')}
+            >
+              {t.owner.blockDateRange}
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            {blockMode === 'time' ? (
+              <>
+                <div>
+                  <p className="text-[11px] text-slate-400 mb-1">{t.owner.blockDate}</p>
+                  <input
+                    type="date"
+                    className="input py-2 text-sm"
+                    value={block.date}
+                    onChange={(e) => setBlock({ ...block, date: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <p className="text-[11px] text-slate-400 mb-1">{t.owner.blockStart}</p>
+                  <TimeSelect value={block.start} onChange={(v) => setBlock({ ...block, start: v })} />
+                </div>
+                <div>
+                  <p className="text-[11px] text-slate-400 mb-1">{t.owner.blockEnd}</p>
+                  <TimeSelect value={block.end} onChange={(v) => setBlock({ ...block, end: v })} />
+                </div>
+              </>
+            ) : (
+              <>
+                <div>
+                  <p className="text-[11px] text-slate-400 mb-1">{t.owner.blockDateFrom}</p>
+                  <input
+                    type="date"
+                    className="input py-2 text-sm"
+                    value={block.startDate}
+                    onChange={(e) => setBlock({ ...block, startDate: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <p className="text-[11px] text-slate-400 mb-1">{t.owner.blockDateTo}</p>
+                  <input
+                    type="date"
+                    className="input py-2 text-sm"
+                    value={block.endDate}
+                    onChange={(e) => setBlock({ ...block, endDate: e.target.value })}
+                  />
+                </div>
+              </>
+            )}
             <div>
               <p className="text-[11px] text-slate-400 mb-1">{t.owner.blockReason}</p>
               <input
@@ -272,14 +361,6 @@ export default function HoursPage() {
                 value={block.reason}
                 onChange={(e) => setBlock({ ...block, reason: e.target.value })}
               />
-            </div>
-            <div>
-              <p className="text-[11px] text-slate-400 mb-1">{t.owner.blockStart}</p>
-              <TimeSelect value={block.start} onChange={(v) => setBlock({ ...block, start: v })} />
-            </div>
-            <div>
-              <p className="text-[11px] text-slate-400 mb-1">{t.owner.blockEnd}</p>
-              <TimeSelect value={block.end} onChange={(v) => setBlock({ ...block, end: v })} />
             </div>
           </div>
           <button className="btn-outline btn-sm w-full" onClick={addBlock}>
@@ -293,12 +374,22 @@ export default function HoursPage() {
           <div className="space-y-2">
             {draft.blockedSlots.map((b, i) => (
               <div
-                key={`${b.date}${b.start}${i}`}
+                key={`${b.startDate || b.date}${b.endDate || b.start}${i}`}
                 className="flex items-center justify-between bg-ink-700/60 rounded-xl px-3 py-2"
               >
                 <div className="text-xs">
-                  <span className="font-bold">{b.date}</span>
-                  <span className="text-slate-400"> · {b.start} - {b.end}</span>
+                  {b.allDay ? (
+                    <>
+                      <span className="font-bold">{b.startDate}</span>
+                      <span className="text-slate-400"> {t.owner.blockRangeSeparator} {b.endDate}</span>
+                      <span className="text-slate-400"> · {t.owner.blockWholeDay}</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="font-bold">{b.date}</span>
+                      <span className="text-slate-400"> · {b.start} - {b.end}</span>
+                    </>
+                  )}
                   {b.reason && <span className="text-slate-500"> · {b.reason}</span>}
                 </div>
                 <button
