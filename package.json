@@ -1,7 +1,7 @@
 {
   "name": "taliani-coiffeur",
   "private": true,
-  "version": "1.0.12",
+  "version": "1.0.13",
   "type": "module",
   "description": "Taliani Coiffeur - barber shop booking and queue management system (Arabic RTL, PWA)",
   "scripts": {

@@ -1,7 +1,7 @@
 /** @type {import('tailwindcss').Config} */
 // Tailwind configuration: dark barber-shop theme with gold accents.
 export default {
-  content: ['./index.html', './src/**/*.{js,jsx}'],
+  content: ['./index.html', './src/**/*.jsx'],
   theme: {
     extend: {
       fontFamily: {
