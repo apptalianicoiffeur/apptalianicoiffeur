@@ -3,7 +3,7 @@
  * Taliani Coiffeur - service worker (TEMPLATE).
  *
  * `scripts/generate-sw.js` copies this file to `public/firebase-messaging-sw.js`
- * and replaces __FIREBASE_CONFIG__ with the public Firebase config at build
+ * and injects the public Firebase config at build
  * time (service workers cannot access Vite env variables at runtime).
  *
  * Responsibilities:

@@ -415,7 +415,8 @@ git push -u origin main
 | لوحة التحكم تعرض "ليس لديك صلاحية" للمالك | أعد نشر القواعد؛ تأكد أن البريد في القواعد بحروف صغيرة ومطابق تماماً. |
 | شاشة "الإعداد غير مكتمل" | ملف `.env` ناقص أو غير مكتمل، أو لم تُعد البناء بعد تغيير قيم البيئة. |
 | لا توجد أوقات متاحة | تحقق من أوقات العمل وأيام الراحة والمواعيد المحجوبة ومفتاح المحل (الحجز في نفس اليوم يتطلب **مفتوح الآن**) وإعداد أقصى مدة للحجز. |
-| الإشعارات الفورية لا تصل | اضبط `FIREBASE_SERVICE_ACCOUNT` و`OWNER_EMAIL` في Cloudflare Pages؛ تأكد أن المتصفح منح إذن الإشعارات؛ الإشعارات داخل التطبيق تعمل في كل الأحوال. |
+| لا يظهر إشعار Push أو لا يُحفظ التفعيل | سجّل الدخول وافتح الجرس ثم اضغط **تفعيل الإشعارات** واسمح للمتصفح؛ تحقق من أن `VITE_FIREBASE_VAPID_KEY` ومفاتيح Firebase موجودة في إعدادات البناء، ثم أعد البناء والنشر. افحص أن `/firebase-messaging-sw.js` يهيّئ `firebase.initializeApp({...})` ولا يحتوي `__FIREBASE_CONFIG__`. |
+| الحجز أو تحديثات المالك لا ترسل Push | بالإضافة إلى تسجيل الجهاز، اضبط `FIREBASE_SERVICE_ACCOUNT` و`OWNER_EMAIL` في إعدادات **Cloudflare Worker أو Pages حسب طريقة النشر**، وامنح حساب الخدمة دوري `Firebase Cloud Messaging API Admin` و`Cloud Datastore Viewer`. راجع استجابة `/api/booking-created` أو `/api/send-push` وسجلات Cloudflare؛ إشعارات الجرس داخل التطبيق منفصلة وتعمل دون هذه المتغيرات. |
 | خطأ Firestore "index required" | انشر الفهارس: `firebase deploy --only firestore:indexes`. |
 | أخطاء الـ Service Worker أو FCM في التطوير | الملف المولَّد يحتاج قيم Firebase حقيقية في `.env`؛ الإشعارات تعمل فقط على HTTPS (أو localhost). |
 

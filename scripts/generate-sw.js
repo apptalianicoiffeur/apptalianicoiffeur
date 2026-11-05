@@ -47,7 +47,14 @@ const templatePath = resolve(root, 'scripts/firebase-messaging-sw.template.js');
 const outPath = resolve(root, 'public/firebase-messaging-sw.js');
 
 const template = readFileSync(templatePath, 'utf8');
-const output = template.replace('__FIREBASE_CONFIG__', JSON.stringify(config, null, 2));
+const placeholder = '__FIREBASE_CONFIG__';
+const placeholderCount = template.split(placeholder).length - 1;
+if (placeholderCount !== 1) {
+  throw new Error(
+    `Expected exactly one ${placeholder} placeholder in ${templatePath}, found ${placeholderCount}.`
+  );
+}
+const output = template.replace(placeholder, JSON.stringify(config, null, 2));
 writeFileSync(outPath, output, 'utf8');
 
 const missing = Object.values(config).includes('REPLACE_ME');
