@@ -9,8 +9,9 @@ import { useSettings } from '../../context/SettingsContext';
 import { useToast } from '../../context/ToastContext';
 import { DEFAULT_COUNTRY_CODE, normalizePhone } from '../../utils/phone';
 import { DEFAULT_TEMPLATES, TEMPLATE_KEYS, fillTemplate, templateVars } from '../../utils/whatsapp';
-import { formatDateLong } from '../../utils/datetime';
-import { Field, Spinner } from '../../components/ui';
+import { formatDateLong, todayISO } from '../../utils/datetime';
+import { fetchPrayerBreaks } from '../../services/prayerTimes';
+import { Field, Spinner, Toggle } from '../../components/ui';
 
 const TAB_LABELS = {
   accept: t.owner.templateAccept,
@@ -49,8 +50,11 @@ export default function SettingsPage() {
   const [tab, setTab] = useState('accept');
   const [drafts, setDrafts] = useState(templates);
   const [shop, setShop] = useState({ shopName: '', phone: '', address: '' });
+  const [prayerSettings, setPrayerSettings] = useState(settings.prayerBreakSettings);
   const [busy, setBusy] = useState(false);
   const [savingTpl, setSavingTpl] = useState(false);
+  const [savingPrayer, setSavingPrayer] = useState(false);
+  const [prayerError, setPrayerError] = useState('');
   const textareaRef = useRef(null);
 
   useEffect(() => setDrafts(templates), [templates]);
@@ -63,6 +67,7 @@ export default function SettingsPage() {
       }),
     [settings]
   );
+  useEffect(() => setPrayerSettings(settings.prayerBreakSettings), [settings.prayerBreakSettings]);
 
   const previewVars = useMemo(
     () => ({
@@ -114,6 +119,50 @@ export default function SettingsPage() {
     }
   };
 
+  const savePrayerSettings = async () => {
+    const next = {
+      ...prayerSettings,
+      city: prayerSettings.city.trim(),
+      country: prayerSettings.country.trim(),
+      beforeMinutes: Number(prayerSettings.beforeMinutes),
+      afterMinutes: Number(prayerSettings.afterMinutes),
+    };
+    if (next.enabled && (!next.city || !next.country)) {
+      setPrayerError(t.owner.prayerLocationRequired);
+      return;
+    }
+    if (
+      !Number.isInteger(next.beforeMinutes) ||
+      !Number.isInteger(next.afterMinutes) ||
+      next.beforeMinutes < 0 ||
+      next.afterMinutes < 0 ||
+      next.beforeMinutes > 120 ||
+      next.afterMinutes > 120
+    ) {
+      setPrayerError(t.owner.prayerMinutesInvalid);
+      return;
+    }
+
+    setSavingPrayer(true);
+    setPrayerError('');
+    try {
+      if (next.enabled) {
+        try {
+          await fetchPrayerBreaks({ prayerBreakSettings: next }, todayISO());
+        } catch {
+          setPrayerError(t.owner.prayerTimesError);
+          return;
+        }
+      }
+      await savePublic({ prayerBreakSettings: next });
+      toast(t.owner.prayerSettingsSaved);
+    } catch {
+      toast(t.errors.actionFailed, 'error');
+    } finally {
+      setSavingPrayer(false);
+    }
+  };
+
   const resetTpl = () => {
     setDrafts((d) => ({ ...d, [tab]: DEFAULT_TEMPLATES[tab] }));
   };
@@ -142,6 +191,74 @@ export default function SettingsPage() {
         </Field>
         <button className="btn-gold w-full" onClick={saveShop} disabled={busy}>
           {busy ? <Spinner size={16} /> : <Save size={16} />} {t.app.saveChanges}
+        </button>
+      </section>
+
+      <section className="card p-4 mb-5">
+        <div className="flex items-center justify-between gap-3 mb-2">
+          <div>
+            <h2 className="section-title mb-1">{t.owner.prayerBreaks}</h2>
+            <p className="text-[11px] text-slate-400 leading-relaxed">{t.owner.prayerBreaksHint}</p>
+          </div>
+          <Toggle
+            checked={prayerSettings.enabled}
+            onChange={(enabled) => setPrayerSettings((draft) => ({ ...draft, enabled }))}
+            ariaLabel={t.owner.prayerBreaks}
+          />
+        </div>
+
+        {prayerSettings.enabled && (
+          <>
+            <div className="grid sm:grid-cols-2 gap-3 mt-4">
+              <Field label={t.owner.prayerCity}>
+                <input
+                  className="input"
+                  value={prayerSettings.city}
+                  onChange={(e) => setPrayerSettings((draft) => ({ ...draft, city: e.target.value }))}
+                  autoComplete="address-level2"
+                />
+              </Field>
+              <Field label={t.owner.prayerCountry}>
+                <input
+                  className="input"
+                  value={prayerSettings.country}
+                  onChange={(e) => setPrayerSettings((draft) => ({ ...draft, country: e.target.value }))}
+                  autoComplete="country-name"
+                />
+              </Field>
+            </div>
+
+            <p className="text-[11px] text-slate-500 -mt-2 mb-4">{t.owner.prayerCalculationHint}</p>
+            <div className="grid sm:grid-cols-2 gap-3">
+              <Field label={t.owner.prayerBefore}>
+                <input
+                  className="input"
+                  type="number"
+                  min="0"
+                  max="120"
+                  step="1"
+                  value={prayerSettings.beforeMinutes}
+                  onChange={(e) => setPrayerSettings((draft) => ({ ...draft, beforeMinutes: e.target.value }))}
+                />
+              </Field>
+              <Field label={t.owner.prayerAfter}>
+                <input
+                  className="input"
+                  type="number"
+                  min="0"
+                  max="120"
+                  step="1"
+                  value={prayerSettings.afterMinutes}
+                  onChange={(e) => setPrayerSettings((draft) => ({ ...draft, afterMinutes: e.target.value }))}
+                />
+              </Field>
+            </div>
+          </>
+        )}
+
+        {prayerError && <p className="text-xs text-red-400 mb-3 font-semibold">{prayerError}</p>}
+        <button className="btn-gold w-full" onClick={savePrayerSettings} disabled={savingPrayer}>
+          {savingPrayer ? <Spinner size={16} /> : <Save size={16} />} {t.app.saveChanges}
         </button>
       </section>
 

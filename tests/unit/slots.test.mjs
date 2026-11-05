@@ -31,6 +31,7 @@ const openSettings = withDefaults({ shopOpen: true, slotInterval: 30 });
 test('withDefaults keeps the weekly hours of the defaults', () => {
   assert.equal(openSettings.weeklyHours[3].open, '09:00');
   assert.equal(DEFAULT_SETTINGS.slotInterval, 30);
+  assert.equal(openSettings.prayerBreakSettings.enabled, false);
 });
 
 test('withDefaults updates the former default shop name while preserving custom names', () => {
@@ -108,6 +109,28 @@ test('single-day time blocks keep their existing behavior', () => {
   assert.equal(slots.find((slot) => slot.time === '11:00').available, true);
 });
 
+test('prayer break windows block overlapping appointment slots', () => {
+  const prayerBreaks = [{ prayer: 'Dhuhr', start: '12:25', end: '12:45' }];
+  const slots = generateSlots({ settings: openSettings, iso: DAY, duration: 30, prayerBreaks });
+
+  assert.equal(slots.find((slot) => slot.time === '12:00').reason, 'prayer');
+  assert.equal(slots.find((slot) => slot.time === '12:30').reason, 'prayer');
+  assert.equal(slots.find((slot) => slot.time === '13:00').available, true);
+});
+
+test('prayer breaks have a distinct reason from regular breaks', () => {
+  const settings = withDefaults({ shopOpen: true, breaks: { [weekdayOf(DAY)]: [{ start: '11:00', end: '11:30' }] } });
+  const slots = generateSlots({
+    settings,
+    iso: DAY,
+    duration: 30,
+    prayerBreaks: [{ prayer: 'Dhuhr', start: '12:00', end: '12:30' }],
+  });
+
+  assert.equal(slots.find((slot) => slot.time === '11:00').reason, 'break');
+  assert.equal(slots.find((slot) => slot.time === '12:00').reason, 'prayer');
+});
+
 test('isTimeBlocked catches overlapping appointments and fully blocked date ranges', () => {
   const settings = withDefaults({
     blockedSlots: [
@@ -119,4 +142,8 @@ test('isTimeBlocked catches overlapping appointments and fully blocked date rang
   assert.equal(isTimeBlocked(settings, DAY, '10:45', 30), true);
   assert.equal(isTimeBlocked(settings, DAY, '11:00', 30), false);
   assert.equal(isTimeBlocked(settings, addDays(DAY, 1), '16:00', 30), true);
+  assert.equal(
+    isTimeBlocked(settings, DAY, '12:30', 30, [{ start: '12:15', end: '12:45' }]),
+    true
+  );
 });

@@ -19,6 +19,13 @@ export const DEFAULT_SETTINGS = {
   phone: '',
   address: '',
   ownerUid: '',
+  prayerBreakSettings: {
+    enabled: false,
+    city: '',
+    country: 'Algeria',
+    beforeMinutes: 5,
+    afterMinutes: 15,
+  },
   slotInterval: 30,
   maxAdvanceDays: 14,
   minLeadMinutes: 30,
@@ -42,7 +49,22 @@ export function withDefaults(settings) {
   const s = { ...DEFAULT_SETTINGS, ...(settings || {}) };
   if (s.shopName === 'تالياني كوفير') s.shopName = 'طالياني كوافير';
   s.weeklyHours = { ...DEFAULT_SETTINGS.weeklyHours, ...(settings?.weeklyHours || {}) };
+  const prayerSettings = settings?.prayerBreakSettings || {};
+  s.prayerBreakSettings = {
+    ...DEFAULT_SETTINGS.prayerBreakSettings,
+    ...prayerSettings,
+    enabled: Boolean(prayerSettings.enabled),
+    city: typeof prayerSettings.city === 'string' ? prayerSettings.city : '',
+    country: typeof prayerSettings.country === 'string' ? prayerSettings.country : 'Algeria',
+    beforeMinutes: boundedMinutes(prayerSettings.beforeMinutes, 5),
+    afterMinutes: boundedMinutes(prayerSettings.afterMinutes, 15),
+  };
   return s;
+}
+
+function boundedMinutes(value, fallback) {
+  const minutes = Number(value);
+  return Number.isFinite(minutes) ? Math.min(120, Math.max(0, Math.round(minutes))) : fallback;
 }
 
 /** The working-hours config for one specific date (after days off are applied). */
@@ -74,12 +96,11 @@ export function getBlocksForDate(settings, iso) {
 }
 
 /** True when the selected appointment interval overlaps a manually blocked window. */
-export function isTimeBlocked(settings, iso, start, duration) {
+export function isTimeBlocked(settings, iso, start, duration, additionalWindows = []) {
   const startMin = timeToMin(start);
   const endMin = startMin + Math.max(0, Number(duration) || 0);
-  return getBlocksForDate(settings, iso).some(
-    (block) => startMin < timeToMin(block.end) && timeToMin(block.start) < endMin
-  );
+  const overlaps = (window) => startMin < timeToMin(window.end) && timeToMin(window.start) < endMin;
+  return getBlocksForDate(settings, iso).some(overlaps) || additionalWindows.some(overlaps);
 }
 
 /** True when [startMin, endMin) intersects any of the given windows. */
@@ -116,7 +137,14 @@ export function dayUnbookableReason(settings, iso) {
  * @param {object} [options.ignoreBookingId] booking to ignore (owner rescheduling)
  * @returns {Array<{time: string, end: string, available: boolean, reason?: string}>}
  */
-export function generateSlots({ settings, iso, bookings = [], duration = 30, ignoreBookingId = null }) {
+export function generateSlots({
+  settings,
+  iso,
+  bookings = [],
+  duration = 30,
+  ignoreBookingId = null,
+  prayerBreaks = [],
+}) {
   const s = withDefaults(settings);
   const interval = Math.max(5, Number(s.slotInterval) || 30);
   const dur = Math.max(15, Number(duration) || interval);
@@ -155,7 +183,10 @@ export function generateSlots({ settings, iso, bookings = [], duration = 30, ign
       slotReason = 'lead';
     }
     // Break window
-    if (overlapsWindows(start, end, breaks)) {
+    if (overlapsWindows(start, end, prayerBreaks)) {
+      available = false;
+      slotReason = 'prayer';
+    } else if (overlapsWindows(start, end, breaks)) {
       available = false;
       slotReason = 'break';
     }

@@ -38,6 +38,7 @@ import t from '../i18n/ar';
 import { STATUS } from '../utils/constants';
 import { timeToMin } from '../utils/datetime';
 import { isTimeBlocked, withDefaults } from '../utils/slots';
+import { fetchPrayerBreaks } from './prayerTimes';
 import { fillTemplate } from '../utils/whatsapp';
 import {
   busyFromQueue,
@@ -62,6 +63,20 @@ export class SlotBlockedError extends Error {
     super('slot blocked');
     this.code = 'SLOT_BLOCKED';
   }
+}
+
+/** Thrown when prayer settings change while a booking is being submitted. */
+export class PrayerSettingsChangedError extends Error {
+  constructor() {
+    super('Prayer break settings changed. Please select a time again.');
+    this.code = 'PRAYER_SETTINGS_CHANGED';
+  }
+}
+
+function samePrayerSettings(left, right) {
+  return ['enabled', 'city', 'country', 'beforeMinutes', 'afterMinutes'].every(
+    (key) => left?.[key] === right?.[key]
+  );
 }
 
 /** Thrown when the booking id does not exist (update/delete of a ghost). */
@@ -148,14 +163,20 @@ function makeCode() {
 export async function createBookingWithCheck(payload) {
   const start = timeToMin(payload.scheduledStart);
   const end = start + Number(payload.durationMinutes || 30);
+  const checkPublicSettings = ['online', 'walk_in'].includes(payload.source);
+  const settingsRef = doc(db, COLLECTIONS.SETTINGS, 'public');
+  const initialSettingsSnap = checkPublicSettings ? await getDoc(settingsRef) : null;
+  const initialSettings = withDefaults(initialSettingsSnap?.exists() ? initialSettingsSnap.data() : {});
+  const prayerBreaks =
+    checkPublicSettings && initialSettings.prayerBreakSettings.enabled
+      ? await fetchPrayerBreaks(initialSettings, payload.date)
+      : [];
 
   const ref = await runTransaction(db, async (tx) => {
     const qRef = queueRef(payload.date);
     const queueSnap = await tx.get(qRef);
     const settingsSnap =
-      payload.source === 'online'
-        ? await tx.get(doc(db, COLLECTIONS.SETTINGS, 'public'))
-        : null;
+      checkPublicSettings ? await tx.get(settingsRef) : null;
     // Write path: refuses the whole transaction when the stored entries hold
     // an element the Map shape would lose (see `QueueDataCorruptedError`).
     const entries = queueEntriesForWrite(
@@ -172,10 +193,20 @@ export async function createBookingWithCheck(payload) {
         withDefaults(settingsSnap.exists() ? settingsSnap.data() : {}),
         payload.date,
         payload.scheduledStart,
-        payload.durationMinutes
+        payload.durationMinutes,
+        prayerBreaks
       )
     ) {
       throw new SlotBlockedError();
+    }
+    if (
+      settingsSnap &&
+      !samePrayerSettings(
+        withDefaults(settingsSnap.exists() ? settingsSnap.data() : {}).prayerBreakSettings,
+        initialSettings.prayerBreakSettings
+      )
+    ) {
+      throw new PrayerSettingsChangedError();
     }
 
     const newRef = doc(bookingsCol());

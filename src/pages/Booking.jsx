@@ -14,12 +14,19 @@ import { useSettings } from '../context/SettingsContext';
 import { useToast } from '../context/ToastContext';
 import { useDocument } from '../hooks/useCollection';
 import { useServices } from '../hooks/useServices';
+import { usePrayerBreaks } from '../hooks/usePrayerBreaks';
 import { STATUS } from '../utils/constants';
 import { addMinutes, formatDateLong, todayISO } from '../utils/datetime';
 import { DEFAULT_COUNTRY_CODE, normalizePhone } from '../utils/phone';
 import { dayUnbookableReason, generateSlots } from '../utils/slots';
 import { queueEntriesAsBookings } from '../utils/queue';
-import { createBookingWithCheck, SlotBlockedError, SlotTakenError } from '../services/bookings';
+import {
+  createBookingWithCheck,
+  PrayerSettingsChangedError,
+  SlotBlockedError,
+  SlotTakenError,
+} from '../services/bookings';
+import { PrayerTimesError } from '../services/prayerTimes';
 import { sendNewBookingPush } from '../services/push';
 import ServiceCard from '../components/ServiceCard';
 import DateStrip from '../components/DateStrip';
@@ -44,6 +51,7 @@ export default function Booking() {
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(null);
   const [authOpen, setAuthOpen] = useState(false);
+  const { windows: prayerBreaks, loading: prayerLoading, error: prayerError } = usePrayerBreaks(settings, date);
 
   // Pre-fill name/phone from the signed-in profile.
   useEffect(() => {
@@ -69,14 +77,15 @@ export default function Booking() {
   const dayBookings = useMemo(() => queueEntriesAsBookings(dailyQueue, date), [dailyQueue, date]);
 
   const slots = useMemo(() => {
-    if (!service) return [];
+    if (!service || prayerLoading || prayerError) return [];
     return generateSlots({
       settings,
       iso: date,
       bookings: dayBookings,
       duration: service.estimatedMinutes || settings.slotInterval,
+      prayerBreaks: prayerBreaks[date] || [],
     });
-  }, [settings, date, dayBookings, service]);
+  }, [settings, date, dayBookings, service, prayerBreaks, prayerLoading, prayerError]);
 
   const dayReason = dayUnbookableReason(settings, date);
   const sameDayClosed = date === todayISO() && !settings.shopOpen;
@@ -111,6 +120,7 @@ export default function Booking() {
   };
 
   const submit = async () => {
+    if (prayerLoading || prayerError) return;
     if (!validate()) return;
     // A signed-in client must have a saved phone number (the security rules
     // reject bookings without one) -> ask for it instead of failing opaquely.
@@ -161,6 +171,11 @@ export default function Booking() {
       } else if (err instanceof SlotTakenError || err?.code === 'SLOT_TAKEN') {
         setErrors({ time: t.booking.slotTaken });
         setTime('');
+      } else if (err instanceof PrayerSettingsChangedError || err?.code === 'PRAYER_SETTINGS_CHANGED') {
+        setErrors({ time: t.booking.prayerSettingsChanged });
+        setTime('');
+      } else if (err instanceof PrayerTimesError) {
+        setErrors({ time: t.owner.prayerTimesError });
       } else {
         toast(t.booking.bookingError, 'error');
       }
@@ -301,11 +316,13 @@ export default function Booking() {
           <ShoppingBag size={17} className="text-gold-400" />
           {t.booking.chooseTime}
         </h2>
+        {prayerError && <p className="text-xs text-red-400 mb-2 font-semibold">{t.owner.prayerTimesError}</p>}
         {service ? (
           <>
             <TimeSlotGrid
               slots={slots}
               value={time}
+              loading={prayerLoading}
               emptyMessage={emptyMessage}
               onSelect={(x) => {
                 setTime(x);
@@ -385,7 +402,7 @@ export default function Booking() {
       <button
         className="btn-gold w-full text-lg py-4 sticky bottom-20 md:bottom-4"
         onClick={submit}
-        disabled={submitting}
+        disabled={submitting || prayerLoading || Boolean(prayerError)}
       >
         {submitting ? t.booking.submitting : t.booking.submit}
       </button>

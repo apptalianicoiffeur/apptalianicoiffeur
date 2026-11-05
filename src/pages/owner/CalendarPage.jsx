@@ -10,6 +10,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Coffee,
+  AlertTriangle,
   Lock,
   Plus,
   Search,
@@ -22,10 +23,13 @@ import { useSettings } from '../../context/SettingsContext';
 import { useToast } from '../../context/ToastContext';
 import { useCollection } from '../../hooks/useCollection';
 import { useServices } from '../../hooks/useServices';
-import { STATUS } from '../../utils/constants';
+import { usePrayerBreaks } from '../../hooks/usePrayerBreaks';
+import { ACTIVE_STATUSES, STATUS } from '../../utils/constants';
 import { addDays, minToTime, nowMinutes, timeToMin, todayISO, weekdayOf, WEEKDAY_SHORT } from '../../utils/datetime';
 import { getBreaksForDate, getBlocksForDate, getDayConfig, generateSlots } from '../../utils/slots';
 import { ownerCreateWalkIn } from '../../services/bookingActions';
+import { PrayerTimesError } from '../../services/prayerTimes';
+import { PrayerSettingsChangedError, SlotBlockedError } from '../../services/bookings';
 import { StatusChip } from '../../components/ui';
 import { WalkInModal } from '../../components/owner/modals';
 
@@ -52,6 +56,12 @@ export default function CalendarPage() {
   // Whole week in one query (day view filters by date on the client).
   const weekStart = addDays(date, -weekdayOf(date));
   const weekEnd = addDays(weekStart, 6);
+  const weekDates = useMemo(() => Array.from({ length: 7 }, (_, index) => addDays(weekStart, index)), [weekStart]);
+  const {
+    windows: prayerBreaksByDate,
+    loading: prayerLoading,
+    error: prayerError,
+  } = usePrayerBreaks(settings, weekDates);
   const { data: weekBookings } = useCollection(
     () =>
       db
@@ -81,12 +91,23 @@ export default function CalendarPage() {
   const cfg = getDayConfig(settings, date);
   const interval = Math.max(5, Number(settings.slotInterval) || 30);
   const today = todayISO();
+  const prayerBreaks = prayerBreaksByDate[date] || [];
+  const prayerConflicts = useMemo(
+    () =>
+      dayBookings.filter((booking) => {
+        if (!ACTIVE_STATUSES.includes(booking.status)) return false;
+        const start = timeToMin(booking.expectedStart || booking.scheduledStart);
+        const end = start + Number(booking.durationMinutes || 30);
+        return prayerBreaks.some((window) => start < timeToMin(window.end) && timeToMin(window.start) < end);
+      }),
+    [dayBookings, prayerBreaks]
+  );
 
   /** Day timeline rows: one row per slot interval. */
   const rows = useMemo(() => {
     if (cfg.closed) return [];
     const out = [];
-    const breaks = getBreaksForDate(settings, date);
+    const breaks = [...getBreaksForDate(settings, date), ...prayerBreaks];
     const blocks = getBlocksForDate(settings, date);
     const openMin = timeToMin(cfg.open);
     for (let m = openMin; m < timeToMin(cfg.close); m += interval) {
@@ -111,12 +132,13 @@ export default function CalendarPage() {
         if (out[idx]) out[idx].bookings.push(b);
       });
     return out;
-  }, [date, visible, cfg, breaksDep(settings, date), blocksDep(settings, date), interval, today]);
+  }, [date, visible, cfg, breaksDep(settings, date), blocksDep(settings, date), interval, today, prayerBreaks]);
 
   const freeCount = useMemo(() => {
-    const slots = generateSlots({ settings, iso: date, bookings: weekBookings, duration: interval });
+    if (prayerLoading || prayerError) return 0;
+    const slots = generateSlots({ settings, iso: date, bookings: weekBookings, duration: interval, prayerBreaks });
     return slots.filter((s) => s.available).length;
-  }, [settings, date, weekBookings, interval]);
+  }, [settings, date, weekBookings, interval, prayerBreaks, prayerLoading, prayerError]);
 
   const createWalkIn = async ({ name, phone, service, time }) => {
     try {
@@ -135,8 +157,11 @@ export default function CalendarPage() {
       );
       toast(t.owner.manualCreated);
       setWalkIn(null);
-    } catch {
-      toast(t.errors.actionFailed, 'error');
+    } catch (error) {
+      if (error instanceof PrayerTimesError) toast(t.owner.prayerTimesError, 'error');
+      else if (error instanceof SlotBlockedError) toast(t.booking.slotBlocked, 'error');
+      else if (error instanceof PrayerSettingsChangedError) toast(t.booking.prayerSettingsChanged, 'error');
+      else toast(t.errors.actionFailed, 'error');
     }
   };
 
@@ -208,6 +233,13 @@ export default function CalendarPage() {
 
       {view === 'day' ? (
         <div className="card p-3">
+          {prayerError && <p className="text-xs text-red-400 mb-3 font-semibold">{t.owner.prayerTimesError}</p>}
+          {prayerConflicts.length > 0 && (
+            <div className="rounded-xl p-3 mb-3 bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs font-bold flex items-start gap-2">
+              <AlertTriangle size={15} className="shrink-0 mt-0.5" />
+              <span>{t.owner.prayerBookingConflict}</span>
+            </div>
+          )}
           {cfg.closed ? (
             <p className="text-center text-slate-400 text-sm py-10">{t.slots.off}</p>
           ) : (
@@ -216,7 +248,7 @@ export default function CalendarPage() {
                 const booked = row.bookings.length > 0;
                 const blocked = Boolean(row.blk);
                 const brk = Boolean(row.brk);
-                const free = !booked && !blocked && !brk;
+                const free = !booked && !blocked && !brk && !prayerLoading && !prayerError;
                 return (
                   <div key={row.time} className="flex gap-2 items-stretch">
                     <div className="w-14 shrink-0 text-center pt-2">
@@ -266,12 +298,14 @@ export default function CalendarPage() {
                         </div>
                       ) : (
                         <button
-                          disabled={row.past}
+                          disabled={row.past || prayerLoading || Boolean(prayerError)}
                           onClick={() => setWalkIn(row.time)}
                           className={`w-full rounded-xl px-3 py-2 border border-dashed text-xs font-bold flex items-center justify-between transition-colors ${
                             row.past
                               ? 'border-ink-500/40 text-slate-600'
-                              : 'border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/10'
+                              : prayerLoading || prayerError
+                                ? 'border-ink-500/40 text-slate-500'
+                                : 'border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/10'
                           }`}
                         >
                           {t.owner.legendFree}
@@ -294,15 +328,33 @@ export default function CalendarPage() {
               const d = new Date(`${iso}T00:00:00`);
               const dayCfg = getDayConfig(settings, iso);
               const dayBookingsAll = weekBookings.filter((b) => b.date === iso);
+              const prayerConflict =
+                !prayerLoading &&
+                !prayerError &&
+                dayBookingsAll.some((booking) => {
+                  if (!ACTIVE_STATUSES.includes(booking.status)) return false;
+                  const start = timeToMin(booking.expectedStart || booking.scheduledStart);
+                  const end = start + Number(booking.durationMinutes || 30);
+                  return (prayerBreaksByDate[iso] || []).some(
+                    (window) => start < timeToMin(window.end) && timeToMin(window.start) < end
+                  );
+                });
               const dayVisible = dayBookingsAll.filter((b) => {
                 if (statusFilter !== 'all' && b.status !== statusFilter) return false;
                 const q = search.trim().toLowerCase();
                 if (!q) return true;
                 return String(b.name || '').toLowerCase().includes(q) || String(b.phone || '').includes(q);
               });
-              const free = generateSlots({ settings, iso, bookings: weekBookings, duration: interval }).filter(
-                (s) => s.available
-              ).length;
+              const free =
+                prayerLoading || prayerError
+                  ? 0
+                  : generateSlots({
+                      settings,
+                      iso,
+                      bookings: weekBookings,
+                      duration: interval,
+                      prayerBreaks: prayerBreaksByDate[iso] || [],
+                    }).filter((s) => s.available).length;
               const isToday = iso === today;
               return (
                 <div
@@ -319,6 +371,11 @@ export default function CalendarPage() {
                     <p className="text-[10px] text-slate-500">
                       {dayCfg.closed ? t.slots.off : `${dayCfg.open} - ${dayCfg.close}`}
                     </p>
+                    {prayerConflict && (
+                      <p className="text-[9px] text-amber-300 font-bold flex items-center justify-center gap-1">
+                        <AlertTriangle size={10} /> {t.owner.prayerBreaks}
+                      </p>
+                    )}
                   </button>
                   <div className="space-y-1">
                     {dayVisible
@@ -342,6 +399,9 @@ export default function CalendarPage() {
                       <p className="text-[10px] text-emerald-400/80 font-bold pt-1">
                         {free} {t.owner.legendFree}
                       </p>
+                    )}
+                    {view === 'week' && prayerError && (
+                      <p className="text-xs text-red-400 mt-3 font-semibold">{t.owner.prayerTimesError}</p>
                     )}
                   </div>
                 </div>

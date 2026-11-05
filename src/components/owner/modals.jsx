@@ -9,6 +9,7 @@ import { useCollection } from '../../hooks/useCollection';
 import { formatDateLong, todayISO } from '../../utils/datetime';
 import { normalizePhone, DEFAULT_COUNTRY_CODE } from '../../utils/phone';
 import { generateSlots } from '../../utils/slots';
+import { usePrayerBreaks } from '../../hooks/usePrayerBreaks';
 import { fillTemplate, templateVars } from '../../utils/whatsapp';
 import DateStrip from '../DateStrip';
 import TimeSlotGrid from '../TimeSlotGrid';
@@ -30,6 +31,7 @@ export function ModifiedTimeModal({ open, onClose, booking, settings, onConfirm 
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const { data: dayBookings, loading } = useDayBookings(date, open);
+  const { windows: prayerBreaks, loading: prayerLoading, error: prayerError } = usePrayerBreaks(settings, date, open);
 
   useEffect(() => {
     if (open) {
@@ -45,16 +47,17 @@ export function ModifiedTimeModal({ open, onClose, booking, settings, onConfirm 
 
   const slots = useMemo(
     () =>
-      open
+      open && !prayerLoading && !prayerError
         ? generateSlots({
             settings,
             iso: date,
             bookings: dayBookings,
             duration: booking?.durationMinutes || 30,
             ignoreBookingId: booking?.id,
+            prayerBreaks: prayerBreaks[date] || [],
           })
         : [],
-    [open, settings, date, dayBookings, booking]
+    [open, settings, date, dayBookings, booking, prayerBreaks, prayerLoading, prayerError]
   );
 
   return (
@@ -69,7 +72,7 @@ export function ModifiedTimeModal({ open, onClose, booking, settings, onConfirm 
           </button>
           <button
             className="btn-gold flex-1"
-            disabled={!time || busy}
+            disabled={!time || busy || prayerLoading || Boolean(prayerError)}
             onClick={async () => {
               setBusy(true);
               try {
@@ -95,7 +98,8 @@ export function ModifiedTimeModal({ open, onClose, booking, settings, onConfirm 
       <DateStrip settings={settings} value={date} onChange={(iso) => { setDate(iso); setTime(''); }} days={21} />
 
       <p className="label mt-4">{t.owner.modifyTime}</p>
-      <TimeSlotGrid slots={slots} value={time} onSelect={setTime} loading={loading} />
+      {prayerError && <p className="text-xs text-red-400 mb-2 font-semibold">{t.owner.prayerTimesError}</p>}
+      <TimeSlotGrid slots={slots} value={time} onSelect={setTime} loading={loading || prayerLoading} />
 
       <div className="mt-4">
         <Field label={t.owner.modifyNote}>
@@ -163,6 +167,7 @@ export function WalkInModal({ open, onClose, date, services, settings, prefillTi
   const [errors, setErrors] = useState({});
   const [busy, setBusy] = useState(false);
   const { data: dayBookings, loading } = useDayBookings(date, open);
+  const { windows: prayerBreaks, loading: prayerLoading, error: prayerError } = usePrayerBreaks(settings, date, open);
 
   useEffect(() => {
     if (open) {
@@ -179,15 +184,16 @@ export function WalkInModal({ open, onClose, date, services, settings, prefillTi
 
   const slots = useMemo(
     () =>
-      open && service
+      open && service && !prayerLoading && !prayerError
         ? generateSlots({
             settings,
             iso: date,
             bookings: dayBookings,
             duration: service.estimatedMinutes || 30,
+            prayerBreaks: prayerBreaks[date] || [],
           })
         : [],
-    [open, service, settings, date, dayBookings]
+    [open, service, settings, date, dayBookings, prayerBreaks, prayerLoading, prayerError]
   );
 
   const submit = async () => {
@@ -197,6 +203,7 @@ export function WalkInModal({ open, onClose, date, services, settings, prefillTi
     if (!p) errs.phone = t.validation.phoneInvalid;
     if (!service) errs.service = t.validation.serviceRequired;
     if (!time) errs.time = t.validation.timeRequired;
+    else if (!slots.some((slot) => slot.time === time && slot.available)) errs.time = t.booking.slotUnavailable;
     setErrors(errs);
     if (Object.keys(errs).length) return;
 
@@ -218,7 +225,11 @@ export function WalkInModal({ open, onClose, date, services, settings, prefillTi
           <button className="btn-ghost flex-1" onClick={onClose}>
             {t.app.cancel}
           </button>
-          <button className="btn-gold flex-1" disabled={busy} onClick={submit}>
+          <button
+            className="btn-gold flex-1"
+            disabled={busy || prayerLoading || Boolean(prayerError)}
+            onClick={submit}
+          >
             {busy ? <Spinner size={16} /> : t.app.save}
           </button>
         </div>
@@ -257,7 +268,10 @@ export function WalkInModal({ open, onClose, date, services, settings, prefillTi
 
       <p className="label">{t.owner.manualTime}</p>
       {service ? (
-        <TimeSlotGrid slots={slots} value={time} onSelect={setTime} loading={loading} />
+        <>
+          {prayerError && <p className="text-xs text-red-400 mb-2 font-semibold">{t.owner.prayerTimesError}</p>}
+          <TimeSlotGrid slots={slots} value={time} onSelect={setTime} loading={loading || prayerLoading} />
+        </>
       ) : (
         <p className="text-xs text-slate-500">{t.booking.chooseService}</p>
       )}

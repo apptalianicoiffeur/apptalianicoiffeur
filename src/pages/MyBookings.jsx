@@ -23,6 +23,7 @@ import { useCollection, useDocument } from '../hooks/useCollection';
 import { ACTIVE_STATUSES, STATUS, UPCOMING_STATUSES } from '../utils/constants';
 import { formatDateLong, timeToMin, todayISO } from '../utils/datetime';
 import { generateSlots } from '../utils/slots';
+import { usePrayerBreaks } from '../hooks/usePrayerBreaks';
 import { queueEntriesAsBookings, queueEntriesList, queueEntryOf } from '../utils/queue';
 import {
   clientAcceptModification,
@@ -99,6 +100,7 @@ function ProposeModal({ open, onClose, booking, settings, onConfirm }) {
   const [date, setDate] = useState(booking?.date || todayISO());
   const [time, setTime] = useState('');
   const [busy, setBusy] = useState(false);
+  const { windows: prayerBreaks, loading: prayerLoading, error: prayerError } = usePrayerBreaks(settings, date, open);
 
   // Live availability of the chosen day from the public, PII-free queue doc.
   const { data: daily } = useDocument(
@@ -112,14 +114,17 @@ function ProposeModal({ open, onClose, booking, settings, onConfirm }) {
 
   const slots = useMemo(
     () =>
-      generateSlots({
-        settings,
-        iso: date,
-        bookings: dayBookings,
-        duration: booking?.durationMinutes || 30,
-        ignoreBookingId: booking?.id,
-      }),
-    [settings, date, dayBookings, booking]
+      !prayerLoading && !prayerError
+        ? generateSlots({
+            settings,
+            iso: date,
+            bookings: dayBookings,
+            duration: booking?.durationMinutes || 30,
+            ignoreBookingId: booking?.id,
+            prayerBreaks: prayerBreaks[date] || [],
+          })
+        : [],
+    [settings, date, dayBookings, booking, prayerBreaks, prayerLoading, prayerError]
   );
 
   return (
@@ -134,7 +139,7 @@ function ProposeModal({ open, onClose, booking, settings, onConfirm }) {
           </button>
           <button
             className="btn-gold flex-1"
-            disabled={!time || busy}
+            disabled={!time || busy || prayerLoading || Boolean(prayerError)}
             onClick={async () => {
               setBusy(true);
               try {
@@ -151,8 +156,9 @@ function ProposeModal({ open, onClose, booking, settings, onConfirm }) {
     >
       <p className="text-xs text-slate-400 mb-3">{t.myBookings.proposeAnother}</p>
       <DateStrip settings={settings} value={date} onChange={setDate} days={14} />
+      {prayerError && <p className="text-xs text-red-400 mt-3 font-semibold">{t.owner.prayerTimesError}</p>}
       <div className="mt-4">
-        <TimeSlotGrid slots={slots} value={time} onSelect={setTime} />
+        <TimeSlotGrid slots={slots} value={time} onSelect={setTime} loading={prayerLoading} />
       </div>
     </Modal>
   );

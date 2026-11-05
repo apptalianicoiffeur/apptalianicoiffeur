@@ -8,10 +8,30 @@ import t from '../i18n/ar';
 const REASON_LABELS = {
   taken: t.slots.taken,
   break: t.slots.break,
+  prayer: t.slots.prayer,
   blocked: t.slots.blocked,
   lead: t.slots.lead,
   closed: t.slots.closed,
 };
+
+function PrayerIcon({ size = 12, ...props }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      {...props}
+    >
+      <path d="M2 13.5h12M3.5 13V7.5h9V13M6 7.5a2 2 0 0 1 4 0M1.5 7.5 3.5 5v2.5M14.5 7.5 12.5 5v2.5M7 10h2v3H7zM7 4.5a1 1 0 1 1 2 0" />
+    </svg>
+  );
+}
 
 export default function TimeSlotGrid({ slots, value, onSelect, loading, emptyMessage }) {
   if (loading) {
@@ -69,6 +89,19 @@ export default function TimeSlotGrid({ slots, value, onSelect, loading, emptyMes
                   className="absolute top-1 left-1 text-red-400"
                 />
               )}
+              {!slot.available && slot.reason === 'break' && (
+                <Coffee
+                  size={12}
+                  aria-label={REASON_LABELS.break}
+                  className="absolute top-1 left-1 text-amber-300"
+                />
+              )}
+              {!slot.available && slot.reason === 'prayer' && (
+                <PrayerIcon
+                  aria-label={REASON_LABELS.prayer}
+                  className="absolute top-1 left-1 text-gold-300"
+                />
+              )}
             </button>
           );
         })}
@@ -88,6 +121,9 @@ export default function TimeSlotGrid({ slots, value, onSelect, loading, emptyMes
         </span>
         <span className="flex items-center gap-1">
           <Coffee size={11} /> {t.slots.break}
+        </span>
+        <span className="flex items-center gap-1">
+          <PrayerIcon /> {t.slots.prayer}
         </span>
       </div>
     </div>
