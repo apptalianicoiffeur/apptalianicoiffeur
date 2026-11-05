@@ -316,7 +316,7 @@ git push -u origin main
 | `services` | auto-id | `name, price (دج), estimatedMinutes, image, active, createdAt` |
 | `bookings` | auto-id | `userId (null للضيوف), name, phone, serviceId, serviceName, price, durationMinutes, date (YYYY-MM-DD), scheduledStart, scheduledEnd, expectedStart, expectedEnd, actualStart, actualEnd, status, proposedDate, proposedTime, clientProposedDate, clientProposedTime, barberMessage, notes, source ('online'\|'walk_in'\|'manual'), code, createdAt, updatedAt` |
 | `notifications` | auto-id | `userId, bookingId, title, body, read, createdAt` |
-| `settings/public` | ثابت | `shopOpen, shopName, phone, address, ownerUid, weeklyHours, breaks, daysOff, blockedSlots, slotInterval, maxAdvanceDays, minLeadMinutes, soundAlerts` |
+| `settings/public` | ثابت | `shopOpen` (حالة المحل المعروضة فقط), `sameDayBookingsEnabled` (إيقاف/تشغيل حجوزات اليوم), `shopName, phone, address, ownerUid, weeklyHours, breaks, daysOff, blockedSlots, slotInterval, maxAdvanceDays, minLeadMinutes, soundAlerts` |
 | `settings/private` | ثابت | `whatsappTemplates { accept, decline, acceptModified, delay }` |
 | `dailyQueue/{date}` | ثابت | `date, entries: { [bookingId]: { bookingId, expectedStart, durationMinutes, status } }, updatedAt` — **بدون أسماء أو هواتف**، حتى يرى الزبون ترتيبه ويعرف الأوقات المشغولة دون قراءة حجوزات الآخرين (يُضاف إليها مدخل الزبون نفسه داخل نفس معاملة الحجز) |
 

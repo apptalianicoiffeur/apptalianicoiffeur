@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   DEFAULT_SETTINGS,
+  canBookToday,
   dayUnbookableReason,
   getBlocksForDate,
   generateSlots,
@@ -81,6 +82,39 @@ test('generateSlots marks taken slots as unavailable', () => {
 test('generateSlots returns no slots on a closed day', () => {
   const closed = withDefaults({ shopOpen: true, closedWeekdays: [weekdayOf(DAY)] });
   assert.deepEqual(generateSlots({ settings: closed, iso: DAY, duration: 30 }), []);
+});
+
+test('shop status does not prevent same-day bookings', () => {
+  const today = todayISO();
+  const settings = withDefaults({
+    shopOpen: false,
+    sameDayBookingsEnabled: true,
+    minLeadMinutes: 0,
+    weeklyHours: { [weekdayOf(today)]: { closed: false, open: '00:00', close: '23:59' } },
+  });
+  const slots = generateSlots({ settings, iso: today, duration: 30 });
+
+  assert.ok(slots.length > 0);
+  assert.equal(canBookToday(settings), true);
+  assert.equal(isTimeBlocked(settings, today, '15:00', 30), false);
+});
+
+test('pausing same-day bookings blocks today only, independent of shop status', () => {
+  const today = todayISO();
+  const settings = withDefaults({
+    shopOpen: true,
+    sameDayBookingsEnabled: false,
+    minLeadMinutes: 0,
+    weeklyHours: { [weekdayOf(today)]: { closed: false, open: '00:00', close: '23:59' } },
+  });
+  const slots = generateSlots({ settings, iso: today, duration: 30 });
+
+  assert.equal(canBookToday(settings), false);
+  assert.ok(slots.length > 0);
+  assert.ok(slots.every((slot) => !slot.available));
+  assert.equal(slots.find((slot) => slot.time === '23:00').reason, 'paused');
+  assert.equal(isTimeBlocked(settings, today, '15:00', 30), true);
+  assert.equal(isTimeBlocked(settings, addDays(today, 1), '15:00', 30), false);
 });
 
 test('date-range blocks close every included day but leave dates outside the range unchanged', () => {

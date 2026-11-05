@@ -67,7 +67,7 @@ export default function Landing() {
               settings.shopOpen ? 'text-emerald-300' : 'text-red-300'
             }`}
           >
-            {settings.shopOpen ? t.status.openNowHint : t.status.closedToday}
+            {settings.shopOpen ? t.status.openNowHint : t.status.closedNow}
           </p>
 
           <div className="mt-6 flex flex-col sm:flex-row items-center justify-center gap-3">

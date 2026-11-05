@@ -13,6 +13,7 @@ const REASON_LABELS = {
   blocked: t.slots.blocked,
   lead: t.slots.lead,
   closed: t.slots.closed,
+  paused: t.slots.paused,
 };
 
 export default function TimeSlotGrid({ slots, value, onSelect, loading, emptyMessage }) {

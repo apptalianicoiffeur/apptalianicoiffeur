@@ -19,7 +19,7 @@ export default function OpenCloseToggle({ settings, onToggle, busy }) {
           {open ? t.status.open : t.status.closed}
         </p>
         <p className="text-xs text-slate-500 mt-1 max-w-xs">
-          {open ? t.status.openNowHint : t.status.closedToday}
+          {t.owner.shopStatusHint}
         </p>
       </div>
 

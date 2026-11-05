@@ -26,6 +26,7 @@ export default function Dashboard() {
   const { profile } = useAuth();
   const { toast } = useToast();
   const [busy, setBusy] = useState(false);
+  const [bookingsBusy, setBookingsBusy] = useState(false);
 
   const today = todayISO();
   const { data: services } = useServices();
@@ -108,7 +109,7 @@ export default function Dashboard() {
     setBusy(true);
     try {
       await setShopOpen(!settings.shopOpen);
-      toast(settings.shopOpen ? t.owner.shopClosed : t.owner.shopOpened);
+      toast(settings.shopOpen ? t.owner.shopStatusClosed : t.owner.shopStatusOpened);
     } catch {
       toast(t.errors.actionFailed, 'error');
     } finally {
@@ -116,19 +117,50 @@ export default function Dashboard() {
     }
   };
 
+  const toggleSameDayBookings = async (enabled) => {
+    setBookingsBusy(true);
+    try {
+      await savePublic({ sameDayBookingsEnabled: enabled });
+      toast(enabled ? t.owner.sameDayBookingsEnabled : t.owner.sameDayBookingsDisabled);
+    } catch {
+      toast(t.errors.actionFailed, 'error');
+    } finally {
+      setBookingsBusy(false);
+    }
+  };
+
   if (loading && !todayBookings) return <FullSpinner />;
 
   return (
     <div className="animate-fade-in space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <h1 className="text-xl sm:text-2xl font-black">
           {fillTemplate(t.owner.greeting, { name: profile?.name ? profile.name.split(' ')[0] : '' })}
         </h1>
-        <Toggle
-          checked={settings.soundAlerts !== false}
-          onChange={(v) => savePublic({ soundAlerts: v })}
-          ariaLabel={t.owner.newRequestSound}
-        />
+        <div className="flex flex-wrap items-center justify-end gap-x-5 gap-y-3">
+          <div className="flex items-center gap-2">
+            <div className="text-left">
+              <p className="text-xs font-bold text-slate-200">{t.owner.sameDayBookings}</p>
+              <p className="text-[10px] text-slate-500">
+                {settings.sameDayBookingsEnabled ? t.owner.bookingsEnabled : t.owner.bookingsDisabled}
+              </p>
+            </div>
+            <Toggle
+              checked={settings.sameDayBookingsEnabled}
+              onChange={toggleSameDayBookings}
+              disabled={bookingsBusy}
+              ariaLabel={t.owner.sameDayBookings}
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold text-slate-300">{t.owner.newRequestSound}</span>
+            <Toggle
+              checked={settings.soundAlerts !== false}
+              onChange={(v) => savePublic({ soundAlerts: v })}
+              ariaLabel={t.owner.newRequestSound}
+            />
+          </div>
+        </div>
       </div>
 
       <OpenCloseToggle settings={settings} onToggle={toggleShop} busy={busy} />

@@ -5,7 +5,7 @@
  * bookable time slots, taking into account:
  *  - weekly working hours, weekly days off and specific days off
  *  - breaks and manually blocked slots
- *  - the shop open/closed switch (blocks same-day booking only)
+ *  - the same-day booking switch
  *  - minimum lead time and maximum advance booking days
  *  - already booked slots (prevents double booking)
  */
@@ -15,6 +15,7 @@ import { addDays, addMinutes, nowMinutes, timeToMin, todayISO, weekdayOf } from 
 /** Default settings used until the owner saves real ones. */
 export const DEFAULT_SETTINGS = {
   shopOpen: false,
+  sameDayBookingsEnabled: true,
   shopName: 'طالياني كوافير',
   phone: '',
   address: '',
@@ -97,10 +98,12 @@ export function getBlocksForDate(settings, iso) {
 
 /** True when the selected appointment interval overlaps a manually blocked window. */
 export function isTimeBlocked(settings, iso, start, duration, additionalWindows = []) {
+  const s = withDefaults(settings);
+  if (iso === todayISO() && !s.sameDayBookingsEnabled) return true;
   const startMin = timeToMin(start);
   const endMin = startMin + Math.max(0, Number(duration) || 0);
   const overlaps = (window) => startMin < timeToMin(window.end) && timeToMin(window.start) < endMin;
-  return getBlocksForDate(settings, iso).some(overlaps) || additionalWindows.some(overlaps);
+  return getBlocksForDate(s, iso).some(overlaps) || additionalWindows.some(overlaps);
 }
 
 /** True when [startMin, endMin) intersects any of the given windows. */
@@ -172,10 +175,10 @@ export function generateSlots({
     let available = true;
     let slotReason = null;
 
-    // Shop closed today -> same-day booking disabled entirely.
-    if (iso === today && !s.shopOpen) {
+    // The shop's live status is informational; only this switch pauses bookings.
+    if (iso === today && !s.sameDayBookingsEnabled) {
       available = false;
-      slotReason = 'closed';
+      slotReason = 'paused';
     }
     // Too soon (minimum lead time)
     if (iso === today && start < now + lead) {
@@ -222,7 +225,7 @@ function minToTimeLocal(mins) {
 
 /** True when the shop currently accepts same-day bookings. */
 export function canBookToday(settings) {
-  return Boolean(withDefaults(settings).shopOpen);
+  return Boolean(withDefaults(settings).sameDayBookingsEnabled);
 }
 
 /** Next open day (ISO) within the advance window, or null. */
@@ -233,7 +236,7 @@ export function nextOpenDay(settings) {
     const iso = addDays(today, i);
     const cfg = getDayConfig(s, iso);
     if (cfg.closed) continue;
-    if (i === 0 && !s.shopOpen) continue;
+    if (i === 0 && !s.sameDayBookingsEnabled) continue;
     // Has at least one free slot?
     return iso;
   }

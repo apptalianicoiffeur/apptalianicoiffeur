@@ -88,10 +88,10 @@ export default function Booking() {
   }, [settings, date, dayBookings, service, prayerBreaks, prayerLoading, prayerError]);
 
   const dayReason = dayUnbookableReason(settings, date);
-  const sameDayClosed = date === todayISO() && !settings.shopOpen;
+  const sameDayBookingsPaused = date === todayISO() && !settings.sameDayBookingsEnabled;
 
-  const emptyMessage = sameDayClosed
-    ? t.status.closedToday
+  const emptyMessage = sameDayBookingsPaused
+    ? t.status.sameDayBookingsPaused
     : dayReason === 'off'
       ? t.booking.noSlotsClosedDay
       : dayReason === 'blocked'
@@ -107,6 +107,8 @@ export default function Booking() {
       errs.time =
         slots.find((slot) => slot.time === time)?.reason === 'blocked'
           ? t.booking.slotBlocked
+          : slots.find((slot) => slot.time === time)?.reason === 'paused'
+            ? t.booking.sameDayBookingsPaused
           : t.booking.slotUnavailable;
     }
     if (!user) {
@@ -261,6 +263,9 @@ export default function Booking() {
         <ShopStatusBadge settings={settings} />
         <p className="text-xs text-slate-400 text-left leading-relaxed">
           {settings.shopOpen ? t.status.openNowHint : t.status.closedToday}
+          {!settings.sameDayBookingsEnabled && (
+            <span className="block text-red-300 mt-1">{t.status.sameDayBookingsPaused}</span>
+          )}
         </p>
       </div>
 
