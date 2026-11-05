@@ -20,6 +20,7 @@ import { addMinutes, formatDateLong, todayISO } from '../utils/datetime';
 import { DEFAULT_COUNTRY_CODE, normalizePhone } from '../utils/phone';
 import { dayUnbookableReason, generateSlots } from '../utils/slots';
 import { queueEntriesAsBookings } from '../utils/queue';
+import { createGuestTrackingToken, guestTrackingPath, guestTrackingUrl } from '../utils/guestTracking';
 import {
   createBookingWithCheck,
   PrayerSettingsChangedError,
@@ -139,8 +140,10 @@ export default function Booking() {
         : normalizePhone(phone) ||
           normalizePhone(`${DEFAULT_COUNTRY_CODE}${String(phone).replace(/^0/, '')}`);
       const scheduledEnd = addMinutes(time, service.estimatedMinutes);
+      const guestTrackingToken = user ? null : createGuestTrackingToken();
       const id = await createBookingWithCheck({
         userId: user?.uid || null,
+        ...(guestTrackingToken ? { guestTrackingToken } : {}),
         name: user ? profile?.name || user.displayName || '' : name.trim(),
         phone: phoneE164,
         serviceId: service.id,
@@ -164,7 +167,7 @@ export default function Booking() {
         source: 'online',
       });
       void sendNewBookingPush(id);
-      setDone({ id, service, date, time });
+      setDone({ id, service, date, time, guestTrackingToken });
       toast(t.booking.confirmTitle);
     } catch (err) {
       if (err instanceof SlotBlockedError || err?.code === 'SLOT_BLOCKED') {
@@ -222,9 +225,31 @@ export default function Booking() {
                 {t.booking.goToMyBookings}
               </button>
             ) : (
-              <p className="text-xs text-slate-500 leading-relaxed">
-                {t.booking.guestNote}
-              </p>
+              <div className="space-y-2">
+                <p className="text-xs text-slate-400 leading-relaxed">{t.booking.guestTrackHint}</p>
+                <button
+                  className="btn-outline w-full"
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(
+                        guestTrackingUrl({ id: done.id, guestTrackingToken: done.guestTrackingToken })
+                      );
+                      toast(t.booking.guestTrackCopied);
+                    } catch (err) {
+                      console.error('Failed to copy the guest booking link.', err);
+                      toast(t.booking.guestTrackCopyFailed, 'error');
+                    }
+                  }}
+                >
+                  {t.booking.copyGuestTrackLink}
+                </button>
+                <Link
+                  className="btn-gold w-full"
+                  to={guestTrackingPath({ id: done.id, guestTrackingToken: done.guestTrackingToken })}
+                >
+                  {t.booking.viewGuestBooking}
+                </Link>
+              </div>
             )}
             <button
               className="btn-outline"

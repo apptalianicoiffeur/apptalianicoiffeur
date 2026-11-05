@@ -237,6 +237,9 @@ export function firestoreField(document, name) {
   const field = document?.fields?.[name];
   if (!field) return undefined;
   if ('stringValue' in field) return field.stringValue;
+  if ('integerValue' in field) return Number(field.integerValue);
+  if ('doubleValue' in field) return field.doubleValue;
+  if ('booleanValue' in field) return field.booleanValue;
   if ('timestampValue' in field) return field.timestampValue;
   if ('nullValue' in field) return null;
   return undefined;

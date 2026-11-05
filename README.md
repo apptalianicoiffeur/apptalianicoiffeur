@@ -173,10 +173,17 @@ npm run build
    الضغط على إشعار Push يفتح الحجز المرتبط؛ يفتح للمالك صفحة الطلب مع إجراءات
    القبول أو الرفض، ويفتح للعميل حجوزه. والضغط على إشعار الجرس يعلّم الإشعار
    كمقروء قبل فتح الحجز.
-2. ينشئ الحجز الإلكتروني إشعار الحلاق داخل معاملة Firestore نفسها، ثم يتحقق
+2. ينشئ الحجز الإلكتروني إشعار الحلاق داخل معاملة Firestore نفسها. حجز الزائر
+   يحصل على رمز متابعة عشوائي قوي لا يظهر إلا للمالك؛ صفحة `/track` ترسل الرمز
+   إلى `/api/guest-booking` عبر POST، وتعيد الدالة بيانات محدودة بعد مطابقته.
+   لا تسمح قواعد Firestore للزائر بقراءة مستند الحجز مباشرة.
+3. عند قبول أو رفض أو تعديل حجز زائر من لوحة المالك، يفتح التطبيق رسالة واتساب
+   جاهزة تتضمن رابط المتابعة المناسب للحالة؛ يجب على المالك ضغط «إرسال» داخل
+   واتساب. هذا ليس إرسالاً آلياً عبر WhatsApp API.
+4. يتحقق
    `/api/booking-created` من الحجز الحديث وصاحبه قبل إرسال Push للحلاق. وكل إجراء
    من المالك ينشئ إشعار المستخدم داخل التطبيق **ويدعو** `/api/send-push`.
-3. الدالة (`functions/api/send-push.js`) تتحقق من رمز Firebase ID الخاص بالمتصل (توقيع
+5. الدالة (`functions/api/send-push.js`) تتحقق من رمز Firebase ID الخاص بالمتصل (توقيع
    RS256 عبر Web Crypto مقابل مفاتيح Google الرسمية) وترفض أي بريد غير مطابق لـ
    `OWNER_EMAIL`. ثم توقّع JWT بحساب الخدمة وترسل الرسالة عبر FCM HTTP v1.
    لا تُستخدم سوى واجهات Web القياسية، لذا تعمل الدالة على بيئة Cloudflare Workers
@@ -191,6 +198,9 @@ npm run build
 | `FIREBASE_SERVICE_ACCOUNT` | **محتوى ملف JSON للخدمة بالكامل** (سطر واحد يكفي) |
 | `OWNER_EMAIL` | بريد الحلاق (نفس `VITE_OWNER_EMAIL`) |
 
+تستخدم متابعة حجوزات الزوار حساب الخدمة نفسه للقراءة، لذلك يجب أن يبقى دور
+`Cloud Datastore Viewer` ممنوحاً. لا تمنح endpoint صلاحية كتابة إلى Firestore.
+
 > إذا كان عنوان الموقع ينتهي بـ `workers.dev`، فيجب ضبط هذين المتغيرين في إعدادات
 > **Worker نفسه**؛ متغيرات Pages لا تنتقل تلقائياً إلى Workers.
 
@@ -198,7 +208,9 @@ npm run build
 > إشعارات Push إلى الجهاز.
 
 انشر `firestore.rules` المحدّثة قبل نشر الواجهة؛ فهي تسمح بإشعار الحجز داخل
-المعاملة نفسها، وتمنع توجيه إشعارات العميل إلى حسابات أخرى.
+المعاملة نفسها، وتمنع توجيه إشعارات العميل إلى حسابات أخرى، وتتحقق من صيغة
+رمز متابعة الزائر. القواعد تقبل أيضاً حجوزات الزوار القديمة بلا رمز أثناء
+النشر التدريجي؛ الحجوزات الجديدة من الواجهة المحدّثة تحصل على الرمز.
 
 عند النشر كـ **Cloudflare Worker** (رابط `workers.dev`)، يوجّه `worker.js` طلبات
 `/api/*` إلى الدالة قبل ملفات الواجهة. يتطلب ذلك نشر `wrangler.jsonc` مع الموقع
@@ -317,7 +329,7 @@ git push -u origin main
 |----------|---------|--------|
 | `users` | `{uid}` | `uid, name, email, phone (+213…) , role ('client'\|'owner'), fcmToken, phoneAsked, createdAt` |
 | `services` | auto-id | `name, price (دج), estimatedMinutes, image, active, createdAt` |
-| `bookings` | auto-id | `userId (null للضيوف), name, phone, serviceId, serviceName, price, durationMinutes, date (YYYY-MM-DD), scheduledStart, scheduledEnd, expectedStart, expectedEnd, actualStart, actualEnd, status, proposedDate, proposedTime, clientProposedDate, clientProposedTime, barberMessage, notes, source ('online'\|'walk_in'\|'manual'), code, createdAt, updatedAt` |
+| `bookings` | auto-id | `userId (null للضيوف), guestTrackingToken (رمز عشوائي 256-bit للضيف، لا يقرأه إلا المالك), name, phone, serviceId, serviceName, price, durationMinutes, date (YYYY-MM-DD), scheduledStart, scheduledEnd, expectedStart, expectedEnd, actualStart, actualEnd, status, proposedDate, proposedTime, clientProposedDate, clientProposedTime, barberMessage, notes, source ('online'\|'walk_in'\|'manual'), code, createdAt, updatedAt` |
 | `notifications` | auto-id | `userId, bookingId, title, body, read, createdAt` |
 | `settings/public` | ثابت | `shopOpen` (حالة المحل المعروضة فقط), `sameDayBookingsEnabled` (إيقاف/تشغيل حجوزات اليوم), `shopName, phone, address, ownerUid, weeklyHours, breaks, daysOff, blockedSlots, slotInterval, maxAdvanceDays, minLeadMinutes, soundAlerts` |
 | `settings/private` | ثابت | `whatsappTemplates { accept, decline, acceptModified, delay }` |
@@ -392,10 +404,12 @@ git push -u origin main
   الأخطاء، تنسيق التاريخ، حالات الحجز. أعد البناء وانتهى الأمر.
 - **قوالب الواتساب**: في لوحة التحكم ← **الإعدادات**. أربعة قوالب (قبول، رفض، قبول
   بتعديل الوقت، تأخير) مع الرموز
-  `{client_name} {service} {date} {time} {new_date} {new_time} {old_time} {shop_name} {price}`،
+  `{client_name} {service} {date} {time} {new_date} {new_time} {old_time} {shop_name} {price} {tracking_url}`،
   ومعاينة مباشرة، وزر *استعادة الافتراضي*. الإرسال يتم عبر الضغط المباشر
   (`https://wa.me/<رقم>?text=…`) — بدون أي واجهة مدفوعة، والحلاق يضغط Send داخل
-  الواتساب فقط.
+  الواتساب فقط. يتضمن `tracking_url` رابط الحجز الخاص للزائر؛ ويُضاف الرابط تلقائياً
+  حتى إلى القوالب القديمة التي لا تحتوي هذا الرمز. خيارات رد الضيف على التعديل تفتح
+  رسالة واتساب جاهزة إلى المحل، ولا تغيّر حالة الحجز حتى يراجع المالك الرد.
 
 ## 15. ملاحظات PWA
 
@@ -408,6 +422,10 @@ git push -u origin main
   `scripts/firebase-messaging-sw.template.js` بدل الملف المولَّد.
 - يعالج الملف رسائل FCM في الخلفية ويوفّر تخزيناً صغيراً (Network-First) ليُحمّل هيكل
   التطبيق دون اتصال.
+- حجوزات الزوار الإلكترونية تُميّز برمز `guestTrackingToken` غير قابل للتخمين؛
+  الرمز لا تمنحه قواعد Firestore لأي زائر لقراءة الحجوزات. صفحة `/track` تتحقق منه
+  عبر `/api/guest-booking` وتعرض بيانات الحجز الضرورية فقط. تعامل مع رابط المتابعة
+  كرابط خاص لا تشاركه علناً.
 
 ## 16. استكشاف الأخطاء وإصلاحها
 
@@ -420,6 +438,7 @@ git push -u origin main
 | لا توجد أوقات متاحة | تحقق من أوقات العمل وأيام الراحة والمواعيد المحجوبة ومفتاح المحل (الحجز في نفس اليوم يتطلب **مفتوح الآن**) وإعداد أقصى مدة للحجز. |
 | لا يظهر إشعار Push أو لا يُحفظ التفعيل | سجّل الدخول وافتح الجرس ثم اضغط **تفعيل الإشعارات** واسمح للمتصفح؛ تحقق من أن `VITE_FIREBASE_VAPID_KEY` ومفاتيح Firebase موجودة في إعدادات البناء، ثم أعد البناء والنشر. افحص أن `/firebase-messaging-sw.js` يهيّئ `firebase.initializeApp({...})` ولا يحتوي `__FIREBASE_CONFIG__`. |
 | الحجز أو تحديثات المالك لا ترسل Push | بالإضافة إلى تسجيل الجهاز، اضبط `FIREBASE_SERVICE_ACCOUNT` و`OWNER_EMAIL` في إعدادات **Cloudflare Worker أو Pages حسب طريقة النشر**، وامنح حساب الخدمة دوري `Firebase Cloud Messaging API Admin` و`Cloud Datastore Viewer`. راجع استجابة `/api/booking-created` أو `/api/send-push` وسجلات Cloudflare؛ إشعارات الجرس داخل التطبيق منفصلة وتعمل دون هذه المتغيرات. |
+| رابط متابعة الزائر لا يعمل | تحقق من نشر `functions/api/guest-booking.js` (أو Worker المحدّث) ومن وجود `FIREBASE_SERVICE_ACCOUNT` مع دور `Cloud Datastore Viewer`. الروابط القديمة التي أُنشئت قبل إضافة الرمز لا تتضمن رابط متابعة. |
 | خطأ Firestore "index required" | انشر الفهارس: `firebase deploy --only firestore:indexes`. |
 | أخطاء الـ Service Worker أو FCM في التطوير | الملف المولَّد يحتاج قيم Firebase حقيقية في `.env`؛ الإشعارات تعمل فقط على HTTPS (أو localhost). |
 

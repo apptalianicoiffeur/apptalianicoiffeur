@@ -40,6 +40,29 @@ test('Worker routes new-booking notifications to their server handler', async ()
   assert.match((await response.json()).error, /FIREBASE_SERVICE_ACCOUNT/);
 });
 
+test('Worker exposes guest booking status lookup without leaking booking data', async () => {
+  const invalid = await worker.fetch(
+    new Request('https://taliani.example/api/guest-booking', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bookingId: '../private', token: 'bad' }),
+    }),
+    {}
+  );
+  assert.equal(invalid.status, 400);
+
+  const unconfigured = await worker.fetch(
+    new Request('https://taliani.example/api/guest-booking', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bookingId: 'booking-id', token: 'a'.repeat(64) }),
+    }),
+    {}
+  );
+  assert.equal(unconfigured.status, 503);
+  assert.match((await unconfigured.json()).error, /not configured/i);
+});
+
 test('new-booking handler rejects malformed booking identifiers before Firestore access', async () => {
   const response = await worker.fetch(
     new Request('https://taliani.example/api/booking-created', {

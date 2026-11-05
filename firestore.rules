@@ -308,10 +308,15 @@ service cloud.firestore {
 
           && (
             d.userId == null
-            || (
-              signedIn()
+            ? (
+                !('guestTrackingToken' in d)
+                || (
+                  d.guestTrackingToken is string
+                  && d.guestTrackingToken.matches('^[0-9a-f]{64}$')
+                )
+              )
+            : signedIn()
               && d.userId == request.auth.uid
-            )
           )
 
           && queueEntryAfter(d);

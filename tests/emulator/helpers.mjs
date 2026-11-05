@@ -296,6 +296,7 @@ export function bookingPayload({
     barberMessage: '',
     notes,
     source,
+    ...(source === 'online' && userId == null ? { guestTrackingToken: 'a'.repeat(64) } : {}),
   };
 }
 

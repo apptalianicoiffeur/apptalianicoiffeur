@@ -84,6 +84,16 @@ test('a guest cannot read any booking', async () => {
   await expectDenied(readBooking(id), 'guests must not read bookings');
 });
 
+test('a guest cannot create a booking with a malformed tracking token', async () => {
+  await signInAsAnonymous();
+  const payload = bookingPayload({ date: DAY, time: '09:30', userId: null });
+  payload.guestTrackingToken = 'not-a-secure-token';
+  await expectDenied(
+    createBookingWithCheck(payload),
+    'malformed guest tracking tokens must be denied'
+  );
+});
+
 test("a client cannot read another client's booking", async () => {
   const id = await bookingOf(DAY, '10:00');
   await signInAsClient(CLIENT_B_UID, emailOf(CLIENT_B_UID));

@@ -239,6 +239,11 @@ export default function QueuePanel({ date, bookings, services, onChanged }) {
                       <p className="font-extrabold truncate">{b.name}</p>
                       <StatusChip status={b.status} />
                     </div>
+                    <span className={`inline-flex mt-1 rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                      b.userId ? 'bg-sky-500/10 text-sky-300' : 'bg-amber-500/10 text-amber-300'
+                    }`}>
+                      {b.userId ? t.owner.registeredClient : t.owner.guestClient}
+                    </span>
                     <p className="text-xs text-slate-400 mt-0.5 truncate">
                       {b.serviceName} · {b.durationMinutes} {t.app.minutes} · {formatTimeRange(b.expectedStart, b.expectedEnd)}
                       {b.source === 'walk_in' ? ` · ${t.owner.walkInTitle}` : ''}

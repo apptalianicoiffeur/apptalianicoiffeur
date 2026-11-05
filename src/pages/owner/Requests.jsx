@@ -23,6 +23,7 @@ import { useCollection, useDocument } from '../../hooks/useCollection';
 import { STATUS } from '../../utils/constants';
 import { addDays, formatDateLong, formatRelative, todayISO } from '../../utils/datetime';
 import { openWhatsApp, telLink, fillTemplate, templateVars } from '../../utils/whatsapp';
+import { guestTrackingUrl } from '../../utils/guestTracking';
 import { ownerSetStatus } from '../../services/bookingActions';
 import RequestActions from '../../components/owner/RequestActions';
 import { EmptyState, ErrorState, FullSpinner, Spinner, StatusChip } from '../../components/ui';
@@ -55,14 +56,18 @@ function AcceptedActions({ booking, onChanged }) {
 
   const wa = () => {
     const key = booking.status === STATUS.ACCEPTED_MODIFIED ? 'acceptModified' : 'accept';
-    openWhatsApp(
-      booking.phone,
-      fillTemplate(templates[key], {
-        ...templateVars(booking, settings),
-        date: formatDateLong(booking.date),
-        new_date: booking.proposedDate ? formatDateLong(booking.proposedDate) : '',
-      })
-    );
+    const trackingUrl = guestTrackingUrl(booking);
+    const text = fillTemplate(templates[key], {
+      ...templateVars(booking, settings),
+      date: formatDateLong(booking.date),
+      new_date: booking.proposedDate ? formatDateLong(booking.proposedDate) : '',
+      tracking_url: trackingUrl || '',
+    });
+    const message =
+      trackingUrl && !templates[key]?.includes('{tracking_url}')
+        ? `${text}\nرابط متابعة الحجز: ${trackingUrl}`
+        : text;
+    openWhatsApp(booking.phone, message);
   };
 
   return (
@@ -100,6 +105,11 @@ function RequestCard({ booking, onChanged, highlighted = false }) {
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="font-extrabold truncate">{booking.name}</p>
+          <span className={`inline-flex mt-1 rounded-full px-2 py-0.5 text-[10px] font-bold ${
+            booking.userId ? 'bg-sky-500/10 text-sky-300' : 'bg-amber-500/10 text-amber-300'
+          }`}>
+            {booking.userId ? t.owner.registeredClient : t.owner.guestClient}
+          </span>
           <p className="text-xs text-slate-400 mt-0.5" dir="ltr">
             {booking.phone}
           </p>

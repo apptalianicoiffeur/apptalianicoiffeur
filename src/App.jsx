@@ -32,6 +32,7 @@ import ServicesPage from './pages/owner/ServicesPage';
 import HoursPage from './pages/owner/HoursPage';
 import ClientsPage from './pages/owner/ClientsPage';
 import SettingsPage from './pages/owner/SettingsPage';
+import GuestBookingStatus from './pages/GuestBookingStatus';
 
 /** Shown when the Firebase web config is missing from the environment. */
 function SetupNotice() {
@@ -81,6 +82,7 @@ export default function App() {
                 <Route element={<ClientLayout />}>
                   <Route path="/" element={<Landing />} />
                   <Route path="/booking" element={<Booking />} />
+                  <Route path="/track" element={<GuestBookingStatus />} />
                   <Route
                     path="/bookings"
                     element={
