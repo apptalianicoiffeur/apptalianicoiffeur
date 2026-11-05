@@ -3,10 +3,12 @@
  * history, visits and total spent), with a search box and one-tap contact.
  */
 import { useMemo, useState } from 'react';
-import { MessageCircle, PhoneCall, Search, UserRound, Users } from 'lucide-react';
+import { Heart, MessageCircle, PhoneCall, Search, Star, Trash2, UserRound, Users } from 'lucide-react';
 import { collection, limit, orderBy, query, where } from 'firebase/firestore';
 import t from '../../i18n/ar';
 import { db, COLLECTIONS } from '../../services/bootstrap';
+import { useSettings } from '../../context/SettingsContext';
+import { useToast } from '../../context/ToastContext';
 import { useCollection } from '../../hooks/useCollection';
 import { STATUS } from '../../utils/constants';
 import { formatDateLong, todayISO } from '../../utils/datetime';
@@ -15,9 +17,12 @@ import { formatPhone } from '../../utils/phone';
 import { EmptyState, ErrorState, FullSpinner, Modal, StatusChip } from '../../components/ui';
 
 export default function ClientsPage() {
+  const { favoriteCustomers, saveFavoriteCustomer, removeFavoriteCustomer } = useSettings();
+  const { toast } = useToast();
   const today = todayISO();
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState(null);
+  const [busyFavorite, setBusyFavorite] = useState('');
 
   const { data: bookings, loading, error } = useCollection(
     () =>
@@ -66,6 +71,32 @@ export default function ClientsPage() {
     );
   }, [clients, search]);
 
+  const filteredFavorites = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return favoriteCustomers;
+    return favoriteCustomers.filter(
+      (customer) =>
+        customer.name.toLowerCase().includes(q) || customer.phone.includes(q)
+    );
+  }, [favoriteCustomers, search]);
+
+  const toggleFavorite = async (customer) => {
+    setBusyFavorite(customer.phone);
+    try {
+      if (favoriteCustomers.some((favorite) => favorite.phone === customer.phone)) {
+        await removeFavoriteCustomer(customer.phone);
+        toast(t.owner.favoriteRemoved);
+      } else {
+        await saveFavoriteCustomer(customer);
+        toast(t.owner.favoriteAdded);
+      }
+    } catch {
+      toast(t.errors.actionFailed, 'error');
+    } finally {
+      setBusyFavorite('');
+    }
+  };
+
   if (loading) return <FullSpinner />;
   if (error) return <ErrorState error={error} />;
 
@@ -88,33 +119,87 @@ export default function ClientsPage() {
         />
       </div>
 
+      <section className="card p-4 mb-5">
+        <div className="flex items-center justify-between gap-3 mb-3">
+          <h2 className="section-title flex items-center gap-2">
+            <Heart size={16} className="text-rose-300" /> {t.owner.favoriteCustomers}
+          </h2>
+          <span className="chip bg-rose-500/10 text-rose-300 border border-rose-500/30">
+            {favoriteCustomers.length}
+          </span>
+        </div>
+        {filteredFavorites.length === 0 ? (
+          <p className="text-xs text-slate-500 text-center py-3">{t.owner.noFavoriteCustomers}</p>
+        ) : (
+          <div className="grid gap-2">
+            {filteredFavorites.map((customer) => (
+              <div
+                key={customer.phone}
+                className="flex items-center gap-3 rounded-xl bg-ink-700/60 border border-ink-500 px-3 py-2.5"
+              >
+                <Star size={15} className="text-gold-300 shrink-0" fill="currentColor" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-bold truncate">{customer.name}</p>
+                  <p className="text-xs text-slate-400" dir="ltr">{formatPhone(customer.phone)}</p>
+                </div>
+                <button
+                  type="button"
+                  className="btn-ghost btn-sm !text-red-300"
+                  aria-label={t.owner.removeFavorite}
+                  title={t.owner.removeFavorite}
+                  disabled={busyFavorite === customer.phone}
+                  onClick={() => toggleFavorite(customer)}
+                >
+                  <Trash2 size={15} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
       {filtered.length === 0 ? (
         <EmptyState icon={Users} title={t.owner.clientsEmpty} />
       ) : (
         <div className="grid gap-2.5">
-          {filtered.map((c) => (
-            <button
-              key={c.phone}
-              onClick={() => setSelected(c)}
-              className="card p-4 flex items-center gap-3 text-right hover:border-gold-500/40 transition-colors"
-            >
-              <div className="w-11 h-11 rounded-2xl bg-ink-600 text-gold-400 flex items-center justify-center shrink-0">
-                <UserRound size={20} />
+          {filtered.map((c) => {
+            const isFavorite = favoriteCustomers.some((favorite) => favorite.phone === c.phone);
+            return (
+              <div key={c.phone} className="card p-3 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSelected(c)}
+                  className="flex-1 min-w-0 p-1 flex items-center gap-3 text-right hover:border-gold-500/40 transition-colors"
+                >
+                  <div className="w-11 h-11 rounded-2xl bg-ink-600 text-gold-400 flex items-center justify-center shrink-0">
+                    <UserRound size={20} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-extrabold truncate">{c.name || formatPhone(c.phone)}</p>
+                    <p className="text-xs text-slate-400 truncate" dir="ltr">
+                      {formatPhone(c.phone)}
+                    </p>
+                  </div>
+                  <div className="text-left shrink-0">
+                    <p className="text-sm font-extrabold text-gold-300">{c.visits} ×</p>
+                    <p className="text-[11px] text-slate-500">
+                      {t.owner.lastVisit}: {c.lastVisit}
+                    </p>
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  className={`btn-ghost btn-sm shrink-0 ${isFavorite ? '!text-gold-300' : 'text-slate-500'}`}
+                  aria-label={isFavorite ? t.owner.removeFavorite : t.owner.saveFavorite}
+                  title={isFavorite ? t.owner.removeFavorite : t.owner.saveFavorite}
+                  disabled={busyFavorite === c.phone}
+                  onClick={() => toggleFavorite(c)}
+                >
+                  <Star size={17} fill={isFavorite ? 'currentColor' : 'none'} />
+                </button>
               </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-extrabold truncate">{c.name || formatPhone(c.phone)}</p>
-                <p className="text-xs text-slate-400 truncate" dir="ltr">
-                  {formatPhone(c.phone)}
-                </p>
-              </div>
-              <div className="text-left shrink-0">
-                <p className="text-sm font-extrabold text-gold-300">{c.visits} ×</p>
-                <p className="text-[11px] text-slate-500">
-                  {t.owner.lastVisit}: {c.lastVisit}
-                </p>
-              </div>
-            </button>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -162,6 +247,20 @@ export default function ClientsPage() {
                 <MessageCircle size={14} /> {t.owner.whatsapp}
               </button>
             </div>
+            <button
+              type="button"
+              className="btn-outline btn-sm w-full mb-4"
+              disabled={busyFavorite === selected.phone}
+              onClick={() => toggleFavorite(selected)}
+            >
+              <Star
+                size={14}
+                fill={favoriteCustomers.some((favorite) => favorite.phone === selected.phone) ? 'currentColor' : 'none'}
+              />
+              {favoriteCustomers.some((favorite) => favorite.phone === selected.phone)
+                ? t.owner.removeFavorite
+                : t.owner.saveFavorite}
+            </button>
 
             <div className="space-y-2 max-h-72 overflow-y-auto">
               {selected.history.length === 0 ? (

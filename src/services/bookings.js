@@ -161,6 +161,7 @@ function makeCode() {
  * @returns {Promise<string>} the new booking id
  */
 export async function createBookingWithCheck(payload) {
+  const { clientNotification, ...bookingPayload } = payload;
   const start = timeToMin(payload.scheduledStart);
   const end = start + Number(payload.durationMinutes || 30);
   const checkPublicSettings = ['online', 'walk_in'].includes(payload.source);
@@ -211,7 +212,7 @@ export async function createBookingWithCheck(payload) {
 
     const newRef = doc(bookingsCol());
     tx.set(newRef, {
-      ...payload,
+      ...bookingPayload,
       code: makeCode(),
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
@@ -234,6 +235,17 @@ export async function createBookingWithCheck(payload) {
           name: payload.name,
           time: payload.scheduledStart,
         }),
+        read: false,
+        createdAt: serverTimestamp(),
+      });
+    }
+    if (clientNotification && payload.userId) {
+      const notificationRef = doc(collection(db, COLLECTIONS.NOTIFICATIONS));
+      tx.set(notificationRef, {
+        userId: payload.userId,
+        bookingId: newRef.id,
+        title: clientNotification.title,
+        body: clientNotification.body,
         read: false,
         createdAt: serverTimestamp(),
       });

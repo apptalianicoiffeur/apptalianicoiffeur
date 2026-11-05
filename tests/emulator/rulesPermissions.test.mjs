@@ -129,6 +129,23 @@ test('a guest booking is readable by nobody but the owner', async () => {
   assert.equal((await readBooking(id)).exists(), true);
 });
 
+test('the owner cannot link a walk-in booking to a client with a different phone', async () => {
+  await signInAsOwner();
+  await expectDenied(
+    createBookingWithCheck(
+      bookingPayload({
+        date: '2026-12-17',
+        time: '09:00',
+        userId: CLIENT_A_UID,
+        source: 'walk_in',
+        status: 'accepted',
+        phone: '+213551234999',
+      })
+    ),
+    'walk-ins may only be linked to the account that owns the matching phone'
+  );
+});
+
 /* ------------------------------------------------------------------ */
 /* Booking write restrictions                                           */
 /* ------------------------------------------------------------------ */

@@ -126,6 +126,18 @@ service cloud.firestore {
     // 4. مساعدات الحجوزات
     // ============================================================
 
+    // The owner may link a walk-in booking only to a client profile whose
+    // saved phone exactly matches the booking phone.
+    function ownerAssignedWalkInToMatchingClient(d) {
+      return isOwner()
+        && d.source == 'walk_in'
+        && d.userId is string
+        && d.userId.size() > 0
+        && exists(/databases/$(database)/documents/users/$(d.userId))
+        && get(/databases/$(database)/documents/users/$(d.userId)).data.role == 'client'
+        && get(/databases/$(database)/documents/users/$(d.userId)).data.phone == d.phone;
+    }
+
     function validBookingFields(d) {
       return d.keys().hasAll([
           'name',
@@ -181,6 +193,7 @@ service cloud.firestore {
             signedIn()
             && d.userId == request.auth.uid
           )
+          || ownerAssignedWalkInToMatchingClient(d)
         );
     }
 

@@ -315,7 +315,7 @@ export default function QueuePanel({ date, bookings, services, onChanged }) {
         services={services}
         settings={settings}
         prefillTime={walkIn}
-        onConfirm={async ({ name, phone, service, time }) => {
+        onConfirm={async ({ name, phone, service, time, notifyCustomer }) => {
           await guard('walkin', async () => {
             await ownerCreateWalkIn(
               {
@@ -327,6 +327,7 @@ export default function QueuePanel({ date, bookings, services, onChanged }) {
                 durationMinutes: Number(service.estimatedMinutes) || 30,
                 date,
                 time,
+                notifyCustomer,
               },
               settings
             );

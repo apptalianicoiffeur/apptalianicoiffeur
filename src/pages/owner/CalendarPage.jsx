@@ -7,8 +7,10 @@ import { useMemo, useState } from 'react';
 import {
   CalendarDays,
   CalendarRange,
+  CalendarCheck2,
   ChevronLeft,
   ChevronRight,
+  CircleCheck,
   Coffee,
   AlertTriangle,
   Lock,
@@ -32,6 +34,7 @@ import { PrayerTimesError } from '../../services/prayerTimes';
 import { PrayerSettingsChangedError, SlotBlockedError } from '../../services/bookings';
 import { StatusChip } from '../../components/ui';
 import { WalkInModal } from '../../components/owner/modals';
+import PrayerIcon from '../../components/PrayerIcon';
 
 const STATUS_OPTIONS = [
   { key: 'all', label: t.app.all },
@@ -107,15 +110,16 @@ export default function CalendarPage() {
   const rows = useMemo(() => {
     if (cfg.closed) return [];
     const out = [];
-    const breaks = [...getBreaksForDate(settings, date), ...prayerBreaks];
+    const breaks = getBreaksForDate(settings, date);
     const blocks = getBlocksForDate(settings, date);
     const openMin = timeToMin(cfg.open);
     for (let m = openMin; m < timeToMin(cfg.close); m += interval) {
       const time = minToTime(m);
       const brk = breaks.find((x) => time >= x.start && time < x.end) || null;
+      const prayer = prayerBreaks.find((x) => time >= x.start && time < x.end) || null;
       const blk = blocks.find((x) => time >= x.start && time < x.end) || null;
       const past = date < today || (date === today && m < nowMinutes());
-      out.push({ time, bookings: [], brk, blk, past });
+      out.push({ time, bookings: [], brk, prayer, blk, past });
     }
     // Assign every booking to the row that CONTAINS its start minute, so a
     // delay/pull-forward that moved it off the grid (e.g. 14:12 with a
@@ -140,7 +144,7 @@ export default function CalendarPage() {
     return slots.filter((s) => s.available).length;
   }, [settings, date, weekBookings, interval, prayerBreaks, prayerLoading, prayerError]);
 
-  const createWalkIn = async ({ name, phone, service, time }) => {
+  const createWalkIn = async ({ name, phone, service, time, notifyCustomer }) => {
     try {
       await ownerCreateWalkIn(
         {
@@ -152,6 +156,7 @@ export default function CalendarPage() {
           durationMinutes: Number(service.estimatedMinutes) || 30,
           date,
           time,
+          notifyCustomer,
         },
         settings
       );
@@ -248,7 +253,7 @@ export default function CalendarPage() {
                 const booked = row.bookings.length > 0;
                 const blocked = Boolean(row.blk);
                 const brk = Boolean(row.brk);
-                const free = !booked && !blocked && !brk && !prayerLoading && !prayerError;
+                const prayer = Boolean(row.prayer);
                 return (
                   <div key={row.time} className="flex gap-2 items-stretch">
                     <div className="w-14 shrink-0 text-center pt-2">
@@ -278,6 +283,7 @@ export default function CalendarPage() {
                                   {b.name}
                                 </p>
                                 <p className="text-[11px] text-slate-400 truncate">
+                                  <CalendarCheck2 size={12} className="inline ml-1 text-sky-300" aria-hidden="true" />
                                   {b.serviceName} · {b.durationMinutes}
                                   {t.app.minutes}
                                   {b.source === 'walk_in' ? ` · ${t.owner.walkInTitle}` : ''}
@@ -296,6 +302,11 @@ export default function CalendarPage() {
                         <div className="rounded-xl px-3 py-2 bg-amber-500/10 border border-amber-500/25 text-amber-300 flex items-center gap-2 text-xs font-bold">
                           <Coffee size={13} /> {t.owner.legendBreak}
                         </div>
+                      ) : prayer ? (
+                        <div className="rounded-xl px-3 py-2 bg-gold-500/10 border border-gold-500/25 text-gold-300 flex items-center gap-2 text-xs font-bold">
+                          <PrayerIcon size={14} /> {t.slots.prayer}
+                          <span className="text-[10px] text-gold-200/70">{row.prayer.start} - {row.prayer.end}</span>
+                        </div>
                       ) : (
                         <button
                           disabled={row.past || prayerLoading || Boolean(prayerError)}
@@ -308,7 +319,9 @@ export default function CalendarPage() {
                                 : 'border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/10'
                           }`}
                         >
-                          {t.owner.legendFree}
+                          <span className="flex items-center gap-1.5">
+                            <CircleCheck size={14} /> {t.owner.legendFree}
+                          </span>
                           {!row.past && <Plus size={14} />}
                         </button>
                       )}
@@ -414,16 +427,19 @@ export default function CalendarPage() {
       {/* Legend */}
       <div className="flex flex-wrap gap-3 mt-4 text-[11px] text-slate-400">
         <span className="flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded bg-ink-700 border border-ink-500" /> {t.owner.legendBooked}
+          <CalendarCheck2 size={13} className="text-sky-300" /> {t.owner.legendBooked}
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded border border-dashed border-emerald-500/60" /> {t.owner.legendFree}
+          <CircleCheck size={13} className="text-emerald-300" /> {t.owner.legendFree}
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded bg-ink-600 border border-ink-400" /> {t.owner.legendBlocked}
+          <Lock size={13} className="text-slate-300" /> {t.owner.legendBlocked}
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded bg-amber-500/30" /> {t.owner.legendBreak}
+          <Coffee size={13} className="text-amber-300" /> {t.owner.legendBreak}
+        </span>
+        <span className="flex items-center gap-1.5">
+          <PrayerIcon size={13} className="text-gold-300" /> {t.slots.prayer}
         </span>
       </div>
 

@@ -3,11 +3,14 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import { collection, query, where } from 'firebase/firestore';
+import { Star, UserRound } from 'lucide-react';
 import t from '../../i18n/ar';
 import { db, COLLECTIONS } from '../../services/bootstrap';
+import { useSettings } from '../../context/SettingsContext';
+import { useToast } from '../../context/ToastContext';
 import { useCollection } from '../../hooks/useCollection';
 import { formatDateLong, todayISO } from '../../utils/datetime';
-import { normalizePhone, DEFAULT_COUNTRY_CODE } from '../../utils/phone';
+import { normalizePhone, nationalPart, DEFAULT_COUNTRY_CODE } from '../../utils/phone';
 import { generateSlots } from '../../utils/slots';
 import { usePrayerBreaks } from '../../hooks/usePrayerBreaks';
 import { fillTemplate, templateVars } from '../../utils/whatsapp';
@@ -160,12 +163,16 @@ export function DeclineModal({ open, onClose, booking, onConfirm }) {
 
 /** Quick add a walk-in / phone client into a free slot. */
 export function WalkInModal({ open, onClose, date, services, settings, prefillTime, onConfirm }) {
+  const { favoriteCustomers, saveFavoriteCustomer } = useSettings();
+  const { toast } = useToast();
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [service, setService] = useState(null);
   const [time, setTime] = useState(prefillTime || '');
   const [errors, setErrors] = useState({});
   const [busy, setBusy] = useState(false);
+  const [savingFavorite, setSavingFavorite] = useState(false);
+  const [selectedFavorite, setSelectedFavorite] = useState('');
   const { data: dayBookings, loading } = useDayBookings(date, open);
   const { windows: prayerBreaks, loading: prayerLoading, error: prayerError } = usePrayerBreaks(settings, date, open);
 
@@ -176,6 +183,7 @@ export function WalkInModal({ open, onClose, date, services, settings, prefillTi
       setService(services?.[0] || null);
       setTime(prefillTime || '');
       setErrors({});
+      setSelectedFavorite('');
     }
     // Reset only on the open transition: `services` is a new array on every
     // snapshot and would clear the form while the owner is typing.
@@ -209,10 +217,53 @@ export function WalkInModal({ open, onClose, date, services, settings, prefillTi
 
     setBusy(true);
     try {
-      await onConfirm({ name: name.trim(), phone: p, service, time });
+      await onConfirm({
+        name: name.trim(),
+        phone: p,
+        service,
+        time,
+        notifyCustomer: Boolean(selectedFavorite && selectedFavorite === p),
+      });
     } finally {
       setBusy(false);
     }
+  };
+
+  const normalizedPhone = normalizePhone(phone) || normalizePhone(`${DEFAULT_COUNTRY_CODE}${phone}`);
+  const isFavorite =
+    selectedFavorite === normalizedPhone &&
+    favoriteCustomers.some((customer) => customer.phone === normalizedPhone);
+
+  const addFavorite = async () => {
+    const normalizedName = name.trim();
+    if (!normalizedName || normalizedName.length < 3) {
+      setErrors((current) => ({ ...current, name: t.validation.nameTooShort }));
+      return;
+    }
+    if (!normalizedPhone) {
+      setErrors((current) => ({ ...current, phone: t.validation.phoneInvalid }));
+      return;
+    }
+
+    setSavingFavorite(true);
+    try {
+      await saveFavoriteCustomer({ name: normalizedName, phone: normalizedPhone });
+      setSelectedFavorite(normalizedPhone);
+      toast(t.owner.favoriteAdded);
+    } catch {
+      toast(t.errors.actionFailed, 'error');
+    } finally {
+      setSavingFavorite(false);
+    }
+  };
+
+  const selectFavorite = (value) => {
+    setSelectedFavorite(value);
+    const customer = favoriteCustomers.find((item) => item.phone === value);
+    if (!customer) return;
+    setName(customer.name);
+    setPhone(nationalPart(customer.phone));
+    setErrors((current) => ({ ...current, name: undefined, phone: undefined }));
   };
 
   return (
@@ -235,8 +286,27 @@ export function WalkInModal({ open, onClose, date, services, settings, prefillTi
         </div>
       }
     >
+      {favoriteCustomers.length > 0 && (
+        <Field label={t.owner.favoriteCustomers}>
+          <select className="input" value={selectedFavorite} onChange={(event) => selectFavorite(event.target.value)}>
+            <option value="">{t.owner.chooseFavorite}</option>
+            {favoriteCustomers.map((customer) => (
+              <option key={customer.phone} value={customer.phone}>
+                {customer.name} — {customer.phone}
+              </option>
+            ))}
+          </select>
+        </Field>
+      )}
       <Field label={t.owner.manualName} error={errors.name}>
-        <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
+        <input
+          className="input"
+          value={name}
+          onChange={(e) => {
+            setName(e.target.value);
+            setSelectedFavorite('');
+          }}
+        />
       </Field>
       <Field label={t.owner.manualPhone} error={errors.phone}>
         <div className="flex gap-2" dir="ltr">
@@ -247,10 +317,22 @@ export function WalkInModal({ open, onClose, date, services, settings, prefillTi
             className="input flex-1"
             inputMode="tel"
             value={phone}
-            onChange={(e) => setPhone(e.target.value)}
+            onChange={(e) => {
+              setPhone(e.target.value);
+              setSelectedFavorite('');
+            }}
           />
         </div>
       </Field>
+      <button
+        type="button"
+        className={`btn-outline btn-sm w-full mb-4 ${isFavorite ? 'text-gold-300' : ''}`}
+        onClick={addFavorite}
+        disabled={savingFavorite || isFavorite}
+      >
+        {savingFavorite ? <Spinner size={14} /> : isFavorite ? <Star size={14} fill="currentColor" /> : <UserRound size={14} />}
+        {isFavorite ? t.owner.favoriteSaved : t.owner.saveFavorite}
+      </button>
 
       <p className="label">{t.owner.manualService}</p>
       <div className="grid gap-2 mb-2 max-h-56 overflow-y-auto">

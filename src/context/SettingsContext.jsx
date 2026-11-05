@@ -3,10 +3,11 @@
  * (private, owner only).
  */
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
-import { doc, onSnapshot, setDoc } from 'firebase/firestore';
+import { deleteField, doc, onSnapshot, runTransaction, setDoc } from 'firebase/firestore';
 import { db, COLLECTIONS, SETTINGS_DOCS } from '../services/bootstrap';
 import { withDefaults } from '../utils/slots';
 import { DEFAULT_TEMPLATES } from '../utils/whatsapp';
+import { normalizePhone } from '../utils/phone';
 import { useAuth } from './AuthContext';
 
 const SettingsCtx = createContext(null);
@@ -57,12 +58,17 @@ export function SettingsProvider({ children }) {
     () => ({ ...DEFAULT_TEMPLATES, ...(priv?.whatsappTemplates || {}) }),
     [priv]
   );
+  const favoriteCustomers = useMemo(
+    () => Object.values(priv?.favoriteCustomers || {}).sort((a, b) => a.name.localeCompare(b.name, 'ar')),
+    [priv]
+  );
 
   const value = useMemo(
     () => ({
       settings: pub || withDefaults({}),
       loading,
       templates,
+      favoriteCustomers,
       /** Merge-patch the public settings (owner session required by rules). */
       savePublic: async (patch) => {
         await setDoc(publicRef(), patch, { merge: true });
@@ -71,12 +77,49 @@ export function SettingsProvider({ children }) {
       saveTemplates: async (next) => {
         await setDoc(privateRef(), { whatsappTemplates: next }, { merge: true });
       },
+      /** Save or update an owner-only favorite customer by normalized phone. */
+      saveFavoriteCustomer: async ({ name, phone }) => {
+        const normalizedPhone = normalizePhone(phone);
+        const normalizedName = String(name || '').trim();
+        if (!normalizedPhone || normalizedName.length < 3) {
+          throw new Error('A valid customer name and phone are required.');
+        }
+        const key = normalizedPhone.replace(/\D/g, '');
+        await runTransaction(db, async (transaction) => {
+          const ref = privateRef();
+          const snapshot = await transaction.get(ref);
+          const favorites = snapshot.data()?.favoriteCustomers || {};
+          transaction.set(
+            ref,
+            {
+              favoriteCustomers: {
+                ...favorites,
+                [key]: { name: normalizedName, phone: normalizedPhone },
+              },
+            },
+            { merge: true }
+          );
+        });
+      },
+      /** Remove an owner-only favorite customer by normalized phone. */
+      removeFavoriteCustomer: async (phone) => {
+        const normalizedPhone = normalizePhone(phone);
+        if (!normalizedPhone) throw new Error('A valid customer phone is required.');
+        const key = normalizedPhone.replace(/\D/g, '');
+        await runTransaction(db, async (transaction) => {
+          const ref = privateRef();
+          const snapshot = await transaction.get(ref);
+          const favorites = snapshot.data()?.favoriteCustomers || {};
+          if (!Object.prototype.hasOwnProperty.call(favorites, key)) return;
+          transaction.update(ref, `favoriteCustomers.${key}`, deleteField());
+        });
+      },
       /** Convenience: flip the shop open/closed switch. */
       setShopOpen: async (open) => {
         await setDoc(publicRef(), { shopOpen: Boolean(open) }, { merge: true });
       },
     }),
-    [pub, loading, templates]
+    [pub, loading, templates, favoriteCustomers]
   );
 
   return <SettingsCtx.Provider value={value}>{children}</SettingsCtx.Provider>;

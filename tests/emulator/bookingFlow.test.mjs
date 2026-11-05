@@ -16,7 +16,7 @@
 import './helpers.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { collection, doc, setDoc, writeBatch } from 'firebase/firestore';
+import { collection, doc, getDocs, query, setDoc, where, writeBatch } from 'firebase/firestore';
 
 import {
   CLIENT_A_UID,
@@ -49,6 +49,7 @@ import {
   ownerCreateWalkIn,
 } from '../../src/services/bookingActions.js';
 import { busyFromQueue, queueEntryOf, timeToMin } from './asserts.mjs';
+import { COLLECTIONS } from '../../src/utils/constants.js';
 
 const settings = { ownerUid: OWNER_UID };
 
@@ -329,6 +330,55 @@ test('owner walk-in booking is stored with its queue entry', async () => {
     durationMinutes: 30,
     status: 'accepted',
   });
+});
+
+test('owner can book a selected favorite to its matching client account and notify it', async () => {
+  const day = '2026-12-10';
+  await signInAsClient();
+  await setDoc(doc(db, COLLECTIONS.USERS, CLIENT_A_UID), {
+    uid: CLIENT_A_UID,
+    role: 'client',
+    phone: '+213551234500',
+    fcmToken: '',
+    name: 'زبون مفضل',
+  });
+
+  await signInAsOwner();
+  const id = await ownerCreateWalkIn(
+    {
+      name: 'زبون مفضل',
+      phone: '+213551234500',
+      serviceId: SERVICE_ID,
+      serviceName: 'قص شعر',
+      price: 1000,
+      durationMinutes: 30,
+      date: day,
+      time: '10:00',
+      notifyCustomer: true,
+    },
+    settings
+  );
+
+  const booking = await readBooking(id);
+  assert.equal(booking.data().userId, CLIENT_A_UID);
+  assert.deepEqual(queueEntryOf((await readQueue(day)).data(), id), {
+    bookingId: id,
+    expectedStart: '10:00',
+    durationMinutes: 30,
+    status: 'accepted',
+  });
+
+  await signInAsClient();
+  const clientNotifications = await getDocs(
+    query(collection(db, COLLECTIONS.NOTIFICATIONS), where('userId', '==', CLIENT_A_UID))
+  );
+  assert.ok(
+    clientNotifications.docs.some(
+      (notification) =>
+        notification.data().bookingId === id &&
+        notification.data().title === 'تم إنشاء موعد لك'
+    )
+  );
 });
 
 test('owner shifts several bookings in ONE transaction (booking + queue together)', async () => {

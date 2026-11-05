@@ -8,10 +8,11 @@
  *
  * Owner actions require the owner session; the Firestore rules re-check this.
  */
-import { doc, getDoc } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, limit, query, where } from 'firebase/firestore';
 import { db, COLLECTIONS } from './bootstrap';
 import { STATUS } from '../utils/constants';
 import { addMinutes, formatDateLong } from '../utils/datetime';
+import { normalizePhone } from '../utils/phone';
 import { fillTemplate, templateVars } from '../utils/whatsapp';
 import {
   createBookingWithCheck,
@@ -287,8 +288,24 @@ export async function ownerPullForward(booking, newStart, settings) {
 
 /** Create a walk-in / phone booking directly into the schedule. */
 export async function ownerCreateWalkIn(payload, settings) {
+  const normalizedPhone = normalizePhone(payload.phone);
+  const userId = payload.notifyCustomer && normalizedPhone
+    ? await findClientAccountByPhone(normalizedPhone)
+    : null;
+  const notification = userId
+    ? {
+        title: t.notifications.walkInBookedTitle,
+        body: fill(t.notifications.walkInBookedBody, {
+          service: payload.serviceName,
+          date: formatDateLong(payload.date),
+          time: payload.time,
+          shop_name: settings?.shopName || 'طالياني كوافير',
+        }),
+      }
+    : null;
+
   const id = await createBookingWithCheck({
-    userId: null,
+    userId,
     name: payload.name,
     phone: payload.phone,
     serviceId: payload.serviceId,
@@ -310,6 +327,22 @@ export async function ownerCreateWalkIn(payload, settings) {
     barberMessage: '',
     notes: payload.notes || '',
     source: 'walk_in',
+    clientNotification: notification,
   });
+
+  if (userId) {
+    const token = await getUserPushToken(userId);
+    if (token) await sendPushToToken(token, notification.title, notification.body, { bookingId: id });
+  }
+
   return id;
+}
+
+/** Match only an explicitly selected favorite to one client account with that exact phone. */
+async function findClientAccountByPhone(phone) {
+  const snapshot = await getDocs(
+    query(collection(db, COLLECTIONS.USERS), where('phone', '==', phone), limit(2))
+  );
+  const matches = snapshot.docs.filter((profile) => profile.data().role === 'client');
+  return matches.length === 1 ? matches[0].id : null;
 }
