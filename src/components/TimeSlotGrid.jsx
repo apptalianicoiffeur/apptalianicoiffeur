@@ -62,6 +62,13 @@ export default function TimeSlotGrid({ slots, value, onSelect, loading, emptyMes
                   !
                 </span>
               )}
+              {!slot.available && slot.reason === 'blocked' && (
+                <Lock
+                  size={12}
+                  aria-label={REASON_LABELS.blocked}
+                  className="absolute top-1 left-1 text-red-400"
+                />
+              )}
             </button>
           );
         })}
@@ -74,7 +81,10 @@ export default function TimeSlotGrid({ slots, value, onSelect, loading, emptyMes
       )}
       <div className="flex flex-wrap gap-3 mt-3 text-[11px] text-slate-500">
         <span className="flex items-center gap-1">
-          <Lock size={11} /> {t.slots.taken} / {t.slots.blocked}
+          <span className="w-2 h-2 rounded-full bg-red-500" /> {t.slots.taken}
+        </span>
+        <span className="flex items-center gap-1">
+          <Lock size={11} /> {t.slots.blocked}
         </span>
         <span className="flex items-center gap-1">
           <Coffee size={11} /> {t.slots.break}

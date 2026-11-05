@@ -73,6 +73,15 @@ export function getBlocksForDate(settings, iso) {
     );
 }
 
+/** True when the selected appointment interval overlaps a manually blocked window. */
+export function isTimeBlocked(settings, iso, start, duration) {
+  const startMin = timeToMin(start);
+  const endMin = startMin + Math.max(0, Number(duration) || 0);
+  return getBlocksForDate(settings, iso).some(
+    (block) => startMin < timeToMin(block.end) && timeToMin(block.start) < endMin
+  );
+}
+
 /** True when [startMin, endMin) intersects any of the given windows. */
 function overlapsWindows(startMin, endMin, windows) {
   return windows.some((w) => startMin < timeToMin(w.end) && timeToMin(w.start) < endMin);
@@ -85,7 +94,7 @@ export function activeBookingsForDay(bookings, iso) {
 
 /**
  * Why a whole day is not bookable (for the UI), or null when it is.
- * Returns an i18n-agnostic reason key: 'off' | 'beyond' | 'past'
+ * Returns an i18n-agnostic reason key: 'off' | 'blocked' | 'beyond' | 'past'
  */
 export function dayUnbookableReason(settings, iso) {
   const today = todayISO();
@@ -93,6 +102,7 @@ export function dayUnbookableReason(settings, iso) {
   if (iso > addDays(today, Number(settings.maxAdvanceDays || 14))) return 'beyond';
   const cfg = getDayConfig(settings, iso);
   if (cfg.closed) return 'off';
+  if (getBlocksForDate(settings, iso).some((block) => block.allDay)) return 'blocked';
   return null;
 }
 

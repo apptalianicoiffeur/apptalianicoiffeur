@@ -1,5 +1,5 @@
 /**
- * Horizontal date picker: the next `days` days, with closed/off days disabled.
+ * Horizontal date picker: the next `days` days, with unavailable days disabled.
  */
 import t from '../i18n/ar';
 import { addDays, isoToDate, todayISO, WEEKDAY_SHORT } from '../utils/datetime';
@@ -26,7 +26,7 @@ export default function DateStrip({ settings, value, onChange, days = 14 }) {
               onClick={() => onChange(iso)}
               className={`shrink-0 w-[68px] rounded-2xl border py-2.5 flex flex-col items-center gap-0.5 transition-all
                 ${
-                  active
+                  active && !disabled
                     ? 'border-gold-500 bg-gold-500/15 text-gold-200 shadow-glow'
                     : disabled
                       ? 'border-ink-500/60 bg-ink-800 text-slate-600'

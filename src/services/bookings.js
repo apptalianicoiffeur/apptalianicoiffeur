@@ -37,6 +37,7 @@ import { db, COLLECTIONS } from './bootstrap';
 import t from '../i18n/ar';
 import { STATUS } from '../utils/constants';
 import { timeToMin } from '../utils/datetime';
+import { isTimeBlocked, withDefaults } from '../utils/slots';
 import { fillTemplate } from '../utils/whatsapp';
 import {
   busyFromQueue,
@@ -52,6 +53,14 @@ export class SlotTakenError extends Error {
   constructor() {
     super('slot taken');
     this.code = 'SLOT_TAKEN';
+  }
+}
+
+/** Thrown when an appointment overlaps a manually blocked period. */
+export class SlotBlockedError extends Error {
+  constructor() {
+    super('slot blocked');
+    this.code = 'SLOT_BLOCKED';
   }
 }
 
@@ -156,6 +165,18 @@ export async function createBookingWithCheck(payload) {
 
     const conflict = busyFromQueue({ entries }).some((b) => start < b.end && b.start < end);
     if (conflict) throw new SlotTakenError();
+
+    if (
+      settingsSnap &&
+      isTimeBlocked(
+        withDefaults(settingsSnap.exists() ? settingsSnap.data() : {}),
+        payload.date,
+        payload.scheduledStart,
+        payload.durationMinutes
+      )
+    ) {
+      throw new SlotBlockedError();
+    }
 
     const newRef = doc(bookingsCol());
     tx.set(newRef, {

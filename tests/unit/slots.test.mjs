@@ -3,8 +3,10 @@ import assert from 'node:assert/strict';
 
 import {
   DEFAULT_SETTINGS,
+  dayUnbookableReason,
   getBlocksForDate,
   generateSlots,
+  isTimeBlocked,
   withDefaults,
 } from '../../src/utils/slots';
 import { addDays, todayISO, weekdayOf } from '../../src/utils/datetime';
@@ -91,6 +93,7 @@ test('date-range blocks close every included day but leave dates outside the ran
   assert.equal(getBlocksForDate(settings, DAY)[0].start, '00:00');
   assert.equal(getBlocksForDate(settings, DAY)[0].end, '24:00');
   assert.equal(getBlocksForDate(settings, addDays(startDate, -1)).length, 0);
+  assert.equal(dayUnbookableReason(settings, DAY), 'blocked');
   assert.equal(generateSlots({ settings, iso: DAY, duration: 30 }).every((slot) => !slot.available), true);
 });
 
@@ -103,4 +106,17 @@ test('single-day time blocks keep their existing behavior', () => {
 
   assert.equal(slots.find((slot) => slot.time === '10:00').reason, 'blocked');
   assert.equal(slots.find((slot) => slot.time === '11:00').available, true);
+});
+
+test('isTimeBlocked catches overlapping appointments and fully blocked date ranges', () => {
+  const settings = withDefaults({
+    blockedSlots: [
+      { date: DAY, start: '10:00', end: '11:00' },
+      { startDate: addDays(DAY, 1), endDate: addDays(DAY, 2), allDay: true },
+    ],
+  });
+
+  assert.equal(isTimeBlocked(settings, DAY, '10:45', 30), true);
+  assert.equal(isTimeBlocked(settings, DAY, '11:00', 30), false);
+  assert.equal(isTimeBlocked(settings, addDays(DAY, 1), '16:00', 30), true);
 });

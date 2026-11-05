@@ -19,7 +19,7 @@ import { addMinutes, formatDateLong, todayISO } from '../utils/datetime';
 import { DEFAULT_COUNTRY_CODE, normalizePhone } from '../utils/phone';
 import { dayUnbookableReason, generateSlots } from '../utils/slots';
 import { queueEntriesAsBookings } from '../utils/queue';
-import { createBookingWithCheck, SlotTakenError } from '../services/bookings';
+import { createBookingWithCheck, SlotBlockedError, SlotTakenError } from '../services/bookings';
 import { sendNewBookingPush } from '../services/push';
 import ServiceCard from '../components/ServiceCard';
 import DateStrip from '../components/DateStrip';
@@ -85,13 +85,21 @@ export default function Booking() {
     ? t.status.closedToday
     : dayReason === 'off'
       ? t.booking.noSlotsClosedDay
-      : t.booking.noSlots;
+      : dayReason === 'blocked'
+        ? t.booking.noSlotsBlockedDay
+        : t.booking.noSlots;
 
   const validate = () => {
     const errs = {};
     if (!service) errs.service = t.validation.serviceRequired;
     if (!date || dayReason) errs.date = t.validation.dateInvalid;
     if (!time) errs.time = t.validation.timeRequired;
+    else if (!slots.some((slot) => slot.time === time && slot.available)) {
+      errs.time =
+        slots.find((slot) => slot.time === time)?.reason === 'blocked'
+          ? t.booking.slotBlocked
+          : t.booking.slotUnavailable;
+    }
     if (!user) {
       if (!name.trim() || name.trim().length < 3) errs.name = t.validation.nameTooShort;
       if (!normalizePhone(phone) && !normalizePhone(`${DEFAULT_COUNTRY_CODE}${phone}`)) {
@@ -147,7 +155,10 @@ export default function Booking() {
       setDone({ id, service, date, time });
       toast(t.booking.confirmTitle);
     } catch (err) {
-      if (err instanceof SlotTakenError || err?.code === 'SLOT_TAKEN') {
+      if (err instanceof SlotBlockedError || err?.code === 'SLOT_BLOCKED') {
+        setErrors({ time: t.booking.slotBlocked });
+        setTime('');
+      } else if (err instanceof SlotTakenError || err?.code === 'SLOT_TAKEN') {
         setErrors({ time: t.booking.slotTaken });
         setTime('');
       } else {
