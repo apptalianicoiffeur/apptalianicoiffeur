@@ -9,10 +9,12 @@ import {
   linkWithCredential,
   linkWithPopup,
   onAuthStateChanged,
+  reauthenticateWithCredential,
   sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signInWithPopup,
   signOut as firebaseSignOut,
+  updatePassword,
   updateProfile,
 } from 'firebase/auth';
 import { doc, getDoc, onSnapshot, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore';
@@ -36,6 +38,8 @@ function authErrorMessage(err) {
       return t.auth.emailAlreadyInUse;
     case 'auth/weak-password':
       return t.auth.weakPassword;
+    case 'auth/requires-recent-login':
+      return t.auth.recentLoginRequired;
     case 'auth/user-disabled':
       return t.auth.userDisabled;
     case 'auth/too-many-requests':
@@ -239,6 +243,27 @@ export function AuthProvider({ children }) {
     [user]
   );
 
+  const changeEmailPassword = useCallback(
+    async (currentPassword, newPassword) => {
+      if (!auth || !user?.email) {
+        return { ok: false, error: t.auth.linkPasswordRequiresSignIn };
+      }
+      setSigningIn(true);
+      try {
+        const credential = EmailAuthProvider.credential(user.email, currentPassword);
+        const freshUser = await reauthenticateWithCredential(user, credential);
+        await updatePassword(freshUser.user, newPassword);
+        setUser(freshUser.user);
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, error: authErrorMessage(err) };
+      } finally {
+        setSigningIn(false);
+      }
+    },
+    [user]
+  );
+
   const linkGoogle = useCallback(async () => {
     if (!auth || !user) return { ok: false, error: t.auth.linkPasswordRequiresSignIn };
     setSigningIn(true);
@@ -319,6 +344,7 @@ export function AuthProvider({ children }) {
       createAccount,
       resetPassword,
       linkEmailPassword,
+      changeEmailPassword,
       linkGoogle,
       signOut,
       savePhone,
@@ -343,6 +369,7 @@ export function AuthProvider({ children }) {
       createAccount,
       resetPassword,
       linkEmailPassword,
+      changeEmailPassword,
       linkGoogle,
       signOut,
       savePhone,

@@ -2,6 +2,7 @@
  * Personal account details and future preference settings.
  */
 import { useEffect, useState } from 'react';
+import { LockKeyhole } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import t from '../i18n/ar';
@@ -9,12 +10,17 @@ import { DEFAULT_COUNTRY_CODE, nationalPart, normalizePhone } from '../utils/pho
 import { Field, FullSpinner, Spinner } from '../components/ui';
 
 export default function ProfilePage() {
-  const { user, profile, saveProfile } = useAuth();
+  const { user, profile, saveProfile, linkEmailPassword, changeEmailPassword, signingIn } = useAuth();
   const { toast } = useToast();
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [busy, setBusy] = useState(false);
   const [errors, setErrors] = useState({});
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordBusy, setPasswordBusy] = useState(false);
+  const hasPassword = user?.providerData.some((provider) => provider.providerId === 'password');
 
   useEffect(() => {
     if (!profile) return;
@@ -45,6 +51,39 @@ export default function ProfilePage() {
       toast(t.profile.saveFailed, 'error');
     } finally {
       setBusy(false);
+    }
+  };
+
+  const submitPassword = async (event) => {
+    event.preventDefault();
+    if (newPassword.length < 8) {
+      toast(t.auth.weakPassword, 'error');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      toast(t.auth.passwordMismatch, 'error');
+      return;
+    }
+    if (hasPassword && !currentPassword) {
+      toast(t.auth.currentPasswordRequired, 'error');
+      return;
+    }
+
+    setPasswordBusy(true);
+    try {
+      const result = hasPassword
+        ? await changeEmailPassword(currentPassword, newPassword)
+        : await linkEmailPassword(newPassword);
+      if (!result.ok) {
+        toast(result.error, 'error');
+        return;
+      }
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      toast(hasPassword ? t.profile.passwordChanged : t.auth.passwordLinked);
+    } finally {
+      setPasswordBusy(false);
     }
   };
 
@@ -110,6 +149,61 @@ export default function ProfilePage() {
           {busy ? t.app.loading : t.app.saveChanges}
         </button>
       </form>
+
+      {user?.email && (
+        <form className="card p-4 sm:p-5 mt-5" onSubmit={submitPassword}>
+          <h2 className="section-title mb-2">
+            <LockKeyhole size={18} className="text-gold-400" />
+            {t.profile.passwordTitle}
+          </h2>
+          <p className="text-xs text-slate-400 leading-relaxed mb-4">
+            {hasPassword ? t.profile.passwordChangeHint : t.profile.passwordCreateHint}
+          </p>
+
+          {hasPassword && (
+            <Field label={t.profile.currentPassword} htmlFor="profile-current-password">
+              <input
+                id="profile-current-password"
+                className="input"
+                type="password"
+                autoComplete="current-password"
+                value={currentPassword}
+                onChange={(event) => setCurrentPassword(event.target.value)}
+              />
+            </Field>
+          )}
+          <Field label={t.profile.newPassword} htmlFor="profile-new-password">
+            <input
+              id="profile-new-password"
+              className="input"
+              type="password"
+              autoComplete="new-password"
+              minLength={8}
+              value={newPassword}
+              onChange={(event) => setNewPassword(event.target.value)}
+            />
+          </Field>
+          <Field label={t.auth.confirmPasswordLabel} htmlFor="profile-confirm-password">
+            <input
+              id="profile-confirm-password"
+              className="input"
+              type="password"
+              autoComplete="new-password"
+              minLength={8}
+              value={confirmPassword}
+              onChange={(event) => setConfirmPassword(event.target.value)}
+            />
+          </Field>
+          <button type="submit" className="btn-gold w-full" disabled={passwordBusy || signingIn}>
+            {passwordBusy || signingIn ? <Spinner size={16} /> : <LockKeyhole size={16} />}
+            {passwordBusy || signingIn
+              ? t.app.loading
+              : hasPassword
+                ? t.profile.passwordChangeAction
+                : t.profile.passwordCreateAction}
+          </button>
+        </form>
+      )}
 
       <section className="card p-4 sm:p-5 mt-5">
         <div className="flex items-start justify-between gap-3">
