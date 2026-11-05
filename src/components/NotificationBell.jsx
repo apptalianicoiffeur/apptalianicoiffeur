@@ -3,6 +3,7 @@
  * real-time listeners so it works instantly and for free.
  */
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Bell, BellRing, CheckCheck } from 'lucide-react';
 import t from '../i18n/ar';
 import { useNotifications } from '../context/NotificationsContext';
@@ -13,9 +14,10 @@ import { formatRelative } from '../utils/datetime';
 import { useOutsideClose } from './shared';
 
 export default function NotificationBell() {
-  const { items, unreadCount, error, markAll, retry } = useNotifications();
+  const { items, unreadCount, error, markAll, markOne, retry } = useNotifications();
   const { user, profile } = useAuth();
   const { toast } = useToast();
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [registeringPush, setRegisteringPush] = useState(false);
   useOutsideClose(open, () => setOpen(false));
@@ -50,6 +52,19 @@ export default function NotificationBell() {
       await markAll();
     } catch (err) {
       console.error('Failed to mark notifications as read.', err);
+      toast(t.notifications.updateFailed, 'error');
+    }
+  };
+
+  const openNotification = async (notification) => {
+    try {
+      if (!notification.read) await markOne(notification.id);
+      setOpen(false);
+      if (notification.bookingId) {
+        navigate(`/notification?bookingId=${encodeURIComponent(notification.bookingId)}`);
+      }
+    } catch (err) {
+      console.error('Failed to open the notification.', err);
       toast(t.notifications.updateFailed, 'error');
     }
   };
@@ -100,9 +115,11 @@ export default function NotificationBell() {
                 <p className="p-6 text-center text-sm text-slate-400">{t.notifications.empty}</p>
               ) : (
                 items.map((n) => (
-                  <div
+                  <button
+                    type="button"
                     key={n.id}
-                    className={`px-4 py-3 border-b border-ink-500/40 ${n.read ? 'opacity-60' : 'bg-ink-700/40'}`}
+                    onClick={() => openNotification(n)}
+                    className={`w-full text-right px-4 py-3 border-b border-ink-500/40 hover:bg-ink-600/70 transition-colors ${n.read ? 'opacity-60' : 'bg-ink-700/40'}`}
                   >
                     <div className="flex items-start justify-between gap-2">
                       <p className="text-sm font-bold text-slate-100">{n.title}</p>
@@ -110,7 +127,7 @@ export default function NotificationBell() {
                     </div>
                     <p className="text-xs text-slate-400 leading-relaxed mt-0.5">{n.body}</p>
                     <p className="text-[10px] text-slate-500 mt-1">{formatRelative(n.createdAt)}</p>
-                  </div>
+                  </button>
                 ))
               )}
             </div>

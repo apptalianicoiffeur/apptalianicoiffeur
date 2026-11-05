@@ -2,8 +2,8 @@
  * "My bookings": upcoming and past bookings, live queue information for today,
  * and the accept / decline / propose actions when the barber changes the time.
  */
-import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   CalendarClock,
   CalendarDays,
@@ -17,6 +17,7 @@ import { collection, doc, query, where } from 'firebase/firestore';
 import t from '../i18n/ar';
 import { db, COLLECTIONS } from '../services/bootstrap';
 import { useAuth } from '../context/AuthContext';
+import { useNotifications } from '../context/NotificationsContext';
 import { useSettings } from '../context/SettingsContext';
 import { useToast } from '../context/ToastContext';
 import { useCollection, useDocument } from '../hooks/useCollection';
@@ -165,7 +166,7 @@ function ProposeModal({ open, onClose, booking, settings, onConfirm }) {
 }
 
 /** One booking card. */
-function BookingCard({ booking, settings }) {
+function BookingCard({ booking, settings, highlighted = false }) {
   const { toast } = useToast();
   const [busy, setBusy] = useState(false);
   const [proposeOpen, setProposeOpen] = useState(false);
@@ -192,7 +193,10 @@ function BookingCard({ booking, settings }) {
   };
 
   return (
-    <div className="card p-4 animate-fade-up">
+    <div
+      id={`booking-${booking.id}`}
+      className={`card p-4 animate-fade-up ${highlighted ? 'border-gold-400 ring-2 ring-gold-400/40' : ''}`}
+    >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="font-extrabold text-slate-100 truncate">{booking.serviceName}</p>
@@ -340,7 +344,11 @@ function BookingCard({ booking, settings }) {
 export default function MyBookings() {
   const { user } = useAuth();
   const { settings } = useSettings();
+  const { items: notifications, markBookingRead } = useNotifications();
   const [tab, setTab] = useState('upcoming');
+  const [searchParams] = useSearchParams();
+  const bookingId = searchParams.get('bookingId');
+  const markedBookingRef = useRef(null);
   const today = todayISO();
 
   const { data: bookings, loading, error, refetchKey } = useMyBookings(user?.uid);
@@ -348,6 +356,25 @@ export default function MyBookings() {
     () => (db ? doc(db, COLLECTIONS.DAILY_QUEUE, today) : null),
     [today]
   );
+
+  useEffect(() => {
+    if (!bookingId || loading) return;
+    const target = bookings.find((booking) => booking.id === bookingId);
+    if (target) {
+      const isUpcoming = target.date >= today && UPCOMING_STATUSES.includes(target.status);
+      setTab(isUpcoming ? 'upcoming' : 'past');
+    }
+  }, [bookingId, bookings, loading, today]);
+
+  useEffect(() => {
+    if (!bookingId || markedBookingRef.current === bookingId) return;
+    if (!notifications.some((item) => item.bookingId === bookingId && !item.read)) return;
+    markedBookingRef.current = bookingId;
+    markBookingRead(bookingId).catch((err) => {
+      markedBookingRef.current = null;
+      console.error('Failed to mark booking notifications as read.', err);
+    });
+  }, [bookingId, notifications, markBookingRead]);
 
   const { upcoming, past, todayBooking } = useMemo(() => {
     const sorted = [...bookings].sort((a, b) =>
@@ -363,6 +390,13 @@ export default function MyBookings() {
   }, [bookings, today]);
 
   const list = tab === 'upcoming' ? upcoming : past;
+
+  useEffect(() => {
+    if (!bookingId || loading || !list.some((booking) => booking.id === bookingId)) return;
+    requestAnimationFrame(() => {
+      document.getElementById(`booking-${bookingId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+  }, [bookingId, loading, list]);
 
   if (loading) return <FullSpinner />;
   if (error) return <ErrorState error={error} onRetry={refetchKey} />;
@@ -424,7 +458,12 @@ export default function MyBookings() {
       ) : (
         <div className="grid gap-3">
           {list.map((b) => (
-            <BookingCard key={b.id} booking={b} settings={settings} />
+            <BookingCard
+              key={b.id}
+              booking={b}
+              settings={settings}
+              highlighted={b.id === bookingId}
+            />
           ))}
         </div>
       )}

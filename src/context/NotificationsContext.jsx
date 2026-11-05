@@ -58,6 +58,17 @@ export function NotificationsProvider({ children }) {
     await markRead(id);
   }, []);
 
+  const markBookingRead = useCallback(
+    async (bookingId) => {
+      if (!bookingId) return;
+      const ids = items
+        .filter((item) => item.bookingId === bookingId && !item.read)
+        .map((item) => item.id);
+      await markManyRead(ids);
+    },
+    [items]
+  );
+
   const value = useMemo(
     () => ({
       items,
@@ -67,9 +78,10 @@ export function NotificationsProvider({ children }) {
       latestId,
       markAll,
       markOne,
+      markBookingRead,
       retry: () => setRetryKey((current) => current + 1),
     }),
-    [items, loading, error, unread.length, latestId, markAll, markOne]
+    [items, loading, error, unread.length, latestId, markAll, markOne, markBookingRead]
   );
 
   return <NotificationsCtx.Provider value={value}>{children}</NotificationsCtx.Provider>;

@@ -33,6 +33,26 @@ messaging.onBackgroundMessage((payload) => {
   });
 });
 
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const bookingId = event.notification?.data?.bookingId;
+  const target = new URL('/notification', self.location.origin);
+  if (bookingId && /^[A-Za-z0-9_-]{1,60}$/.test(bookingId)) {
+    target.searchParams.set('bookingId', bookingId);
+  }
+
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+      const appClient = clients.find((client) => new URL(client.url).origin === self.location.origin);
+      if (appClient) {
+        appClient.navigate(target.href);
+        return appClient.focus();
+      }
+      return self.clients.openWindow(target.href);
+    })
+  );
+});
+
 /* ------------------------- Minimal offline cache ------------------------- */
 const CACHE_NAME = 'taliani-shell-v1';
 

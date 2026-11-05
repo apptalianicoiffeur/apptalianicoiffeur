@@ -6,7 +6,7 @@
  *  Client:      /bookings    my bookings (sign-in required)
  *  Owner:       /owner...    protected barber dashboard
  */
-import { BrowserRouter, Route, Routes } from 'react-router-dom';
+import { BrowserRouter, Navigate, Route, Routes, useSearchParams } from 'react-router-dom';
 import { SettingsIcon } from 'lucide-react';
 import t from './i18n/ar';
 import { isFirebaseConfigured } from './config/firebase';
@@ -23,6 +23,8 @@ import Booking from './pages/Booking';
 import MyBookings from './pages/MyBookings';
 import ProfilePage from './pages/ProfilePage';
 import NotFound from './pages/NotFound';
+import { useAuth } from './context/AuthContext';
+import { FullSpinner } from './components/ui';
 import Dashboard from './pages/owner/Dashboard';
 import Requests from './pages/owner/Requests';
 import CalendarPage from './pages/owner/CalendarPage';
@@ -46,6 +48,24 @@ function SetupNotice() {
   );
 }
 
+function NotificationRedirect() {
+  const { user, isOwner, initializing } = useAuth();
+  const [searchParams] = useSearchParams();
+  const bookingId = searchParams.get('bookingId');
+
+  if (initializing) return <FullSpinner />;
+  if (!user) return <Navigate to="/" replace />;
+  if (!bookingId) return <Navigate to={isOwner ? '/owner/requests' : '/bookings'} replace />;
+
+  const destination = isOwner ? '/owner/requests' : '/bookings';
+  return (
+    <Navigate
+      to={`${destination}?bookingId=${encodeURIComponent(bookingId)}`}
+      replace
+    />
+  );
+}
+
 export default function App() {
   if (!isFirebaseConfigured) return <SetupNotice />;
 
@@ -57,6 +77,7 @@ export default function App() {
             <NotificationsProvider>
               <BrowserRouter>
                 <Routes>
+                <Route path="/notification" element={<NotificationRedirect />} />
                 <Route element={<ClientLayout />}>
                   <Route path="/" element={<Landing />} />
                   <Route path="/booking" element={<Booking />} />

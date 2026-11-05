@@ -3,7 +3,8 @@
  * call, WhatsApp, and the completed / no-show / cancelled transitions.
  * Filterable by status, date and client name/phone.
  */
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   CheckCircle2,
   MessageCircle,
@@ -12,12 +13,13 @@ import {
   UserX,
   XCircle,
 } from 'lucide-react';
-import { collection, limit, orderBy, query, where } from 'firebase/firestore';
+import { collection, doc, limit, orderBy, query, where } from 'firebase/firestore';
 import t from '../../i18n/ar';
 import { db, COLLECTIONS } from '../../services/bootstrap';
+import { useNotifications } from '../../context/NotificationsContext';
 import { useSettings } from '../../context/SettingsContext';
 import { useToast } from '../../context/ToastContext';
-import { useCollection } from '../../hooks/useCollection';
+import { useCollection, useDocument } from '../../hooks/useCollection';
 import { STATUS } from '../../utils/constants';
 import { addDays, formatDateLong, formatRelative, todayISO } from '../../utils/datetime';
 import { openWhatsApp, telLink, fillTemplate, templateVars } from '../../utils/whatsapp';
@@ -89,9 +91,12 @@ function AcceptedActions({ booking, onChanged }) {
   );
 }
 
-function RequestCard({ booking, onChanged }) {
+function RequestCard({ booking, onChanged, highlighted = false }) {
   return (
-    <div className="card p-4 animate-fade-up">
+    <div
+      id={`booking-${booking.id}`}
+      className={`card p-4 animate-fade-up ${highlighted ? 'border-gold-400 ring-2 ring-gold-400/40' : ''}`}
+    >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="font-extrabold truncate">{booking.name}</p>
@@ -152,6 +157,10 @@ export default function Requests() {
   const today = todayISO();
   const [statusFilter, setStatusFilter] = useState('pending');
   const [search, setSearch] = useState('');
+  const [searchParams] = useSearchParams();
+  const bookingId = searchParams.get('bookingId');
+  const { items: notifications, markBookingRead } = useNotifications();
+  const markedBookingRef = useRef(null);
 
   const { data: bookings, loading, error } = useCollection(
     () =>
@@ -165,10 +174,34 @@ export default function Requests() {
         : null,
     [today]
   );
+  const {
+    data: targetBooking,
+    loading: targetLoading,
+    error: targetError,
+  } = useDocument(() => (db && bookingId ? doc(db, COLLECTIONS.BOOKINGS, bookingId) : null), [bookingId]);
+
+  useEffect(() => {
+    if (!bookingId) return;
+    setStatusFilter('all');
+  }, [bookingId]);
+
+  useEffect(() => {
+    if (!bookingId || markedBookingRef.current === bookingId) return;
+    if (!notifications.some((item) => item.bookingId === bookingId && !item.read)) return;
+    markedBookingRef.current = bookingId;
+    markBookingRead(bookingId).catch((err) => {
+      markedBookingRef.current = null;
+      console.error('Failed to mark booking notifications as read.', err);
+    });
+  }, [bookingId, notifications, markBookingRead]);
 
   const list = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return bookings
+    const allBookings =
+      targetBooking && !bookings.some((booking) => booking.id === targetBooking.id)
+        ? [...bookings, targetBooking]
+        : bookings;
+    return allBookings
       .filter((b) => {
         if (statusFilter === 'pending') return b.status === STATUS.PENDING;
         if (statusFilter === 'active')
@@ -184,10 +217,18 @@ export default function Requests() {
         );
       })
       .sort((a, b) => `${a.date}${a.scheduledStart}`.localeCompare(`${b.date}${b.scheduledStart}`));
-  }, [bookings, statusFilter, search]);
+  }, [bookings, targetBooking, statusFilter, search]);
 
-  if (loading) return <FullSpinner />;
+  useEffect(() => {
+    if (!bookingId || loading || targetLoading || !list.some((booking) => booking.id === bookingId)) return;
+    requestAnimationFrame(() => {
+      document.getElementById(`booking-${bookingId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+  }, [bookingId, loading, targetLoading, list]);
+
+  if (loading || (bookingId && targetLoading)) return <FullSpinner />;
   if (error) return <ErrorState error={error} />;
+  if (targetError) return <ErrorState error={targetError} />;
 
   return (
     <div className="animate-fade-in">
@@ -226,7 +267,12 @@ export default function Requests() {
       ) : (
         <div className="grid gap-3">
           {list.map((b) => (
-            <RequestCard key={b.id} booking={b} onChanged={() => {}} />
+            <RequestCard
+              key={b.id}
+              booking={b}
+              onChanged={() => {}}
+              highlighted={b.id === bookingId}
+            />
           ))}
         </div>
       )}
