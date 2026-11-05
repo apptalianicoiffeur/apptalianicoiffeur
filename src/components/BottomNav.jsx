@@ -2,20 +2,21 @@
  * Mobile bottom navigation (touch friendly, safe-area aware).
  */
 import { NavLink } from 'react-router-dom';
-import { CalendarPlus, ClipboardList, Home, LayoutDashboard, UserRound } from 'lucide-react';
+import { CalendarPlus, ClipboardList, Home, LayoutDashboard, Search, UserRound } from 'lucide-react';
 import t from '../i18n/ar';
 import { useAuth } from '../context/AuthContext';
 
 const items = [
   { to: '/', icon: Home, label: t.nav.home, end: true },
   { to: '/booking', icon: CalendarPlus, label: t.nav.booking },
+  { to: '/track', icon: Search, label: t.nav.trackBooking, guestOnly: true },
   { to: '/bookings', icon: ClipboardList, label: t.nav.myBookings, auth: true },
   { to: '/profile', icon: UserRound, label: t.nav.profileSettings, auth: true },
 ];
 
 export default function BottomNav() {
   const { user, isOwner } = useAuth();
-  const visible = items.filter((i) => !i.auth || user);
+  const visible = items.filter((i) => (!i.auth || user) && (!i.guestOnly || !user));
   const all = isOwner
     ? [...visible, { to: '/owner', icon: LayoutDashboard, label: t.nav.dashboard }]
     : visible;

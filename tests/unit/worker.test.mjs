@@ -61,6 +61,27 @@ test('Worker exposes guest booking status lookup without leaking booking data', 
   );
   assert.equal(unconfigured.status, 503);
   assert.match((await unconfigured.json()).error, /not configured/i);
+
+  const invalidLookup = await worker.fetch(
+    new Request('https://taliani.example/api/guest-booking', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bookingCode: 'bad', phone: '0550123456' }),
+    }),
+    {}
+  );
+  assert.equal(invalidLookup.status, 400);
+
+  const unconfiguredLookup = await worker.fetch(
+    new Request('https://taliani.example/api/guest-booking', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bookingCode: 'ABC234', phone: '0550123456' }),
+    }),
+    {}
+  );
+  assert.equal(unconfiguredLookup.status, 503);
+  assert.match((await unconfiguredLookup.json()).code, /LOOKUP_NOT_CONFIGURED/);
 });
 
 test('new-booking handler rejects malformed booking identifiers before Firestore access', async () => {

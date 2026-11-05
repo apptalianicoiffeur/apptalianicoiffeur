@@ -146,7 +146,7 @@ function queueEntriesForWrite(raw, date) {
 }
 
 /** Short human-friendly code shown to clients (6 chars). */
-function makeCode() {
+export function createBookingCode() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   let out = '';
   for (let i = 0; i < 6; i++) out += chars[Math.floor(Math.random() * chars.length)];
@@ -213,7 +213,7 @@ export async function createBookingWithCheck(payload) {
     const newRef = doc(bookingsCol());
     tx.set(newRef, {
       ...bookingPayload,
-      code: makeCode(),
+      code: bookingPayload.code || createBookingCode(),
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });

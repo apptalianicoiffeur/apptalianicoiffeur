@@ -22,6 +22,7 @@ import { dayUnbookableReason, generateSlots } from '../utils/slots';
 import { queueEntriesAsBookings } from '../utils/queue';
 import { createGuestTrackingToken, guestTrackingPath, guestTrackingUrl } from '../utils/guestTracking';
 import {
+  createBookingCode,
   createBookingWithCheck,
   PrayerSettingsChangedError,
   SlotBlockedError,
@@ -141,9 +142,11 @@ export default function Booking() {
           normalizePhone(`${DEFAULT_COUNTRY_CODE}${String(phone).replace(/^0/, '')}`);
       const scheduledEnd = addMinutes(time, service.estimatedMinutes);
       const guestTrackingToken = user ? null : createGuestTrackingToken();
+      const bookingCode = createBookingCode();
       const id = await createBookingWithCheck({
         userId: user?.uid || null,
         ...(guestTrackingToken ? { guestTrackingToken } : {}),
+        code: bookingCode,
         name: user ? profile?.name || user.displayName || '' : name.trim(),
         phone: phoneE164,
         serviceId: service.id,
@@ -167,7 +170,7 @@ export default function Booking() {
         source: 'online',
       });
       void sendNewBookingPush(id);
-      setDone({ id, service, date, time, guestTrackingToken });
+      setDone({ id, code: bookingCode, service, date, time, guestTrackingToken });
       toast(t.booking.confirmTitle);
     } catch (err) {
       if (err instanceof SlotBlockedError || err?.code === 'SLOT_BLOCKED') {
@@ -217,6 +220,14 @@ export default function Booking() {
               <span className="text-xs text-slate-400">{t.booking.confirmStatus}</span>
               <StatusChip status={STATUS.PENDING} />
             </div>
+            {!user && (
+              <div className="flex justify-between gap-3 items-center border-t border-ink-500/50 pt-2">
+                <span className="text-xs text-slate-400">{t.guestBooking.bookingCode}</span>
+                <span className="font-mono font-black tracking-widest text-gold-300" dir="ltr">
+                  {done.code}
+                </span>
+              </div>
+            )}
           </div>
 
           <div className="mt-6 flex flex-col gap-2">

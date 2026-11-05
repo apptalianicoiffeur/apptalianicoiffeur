@@ -232,6 +232,27 @@ export async function readFirestoreDocument(sa, documentPath) {
   return response.json();
 }
 
+/** Run a read-only structured query against a Firestore collection. */
+export async function queryFirestoreDocuments(sa, structuredQuery) {
+  const access = await getAccessToken(sa, 'https://www.googleapis.com/auth/datastore');
+  if (!access) throw new Error('Could not obtain a Firestore access token.');
+
+  const url =
+    `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(sa.project_id)}` +
+    '/databases/(default)/documents:runQuery';
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${access}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ structuredQuery }),
+  });
+  if (!response.ok) throw new Error(`Firestore query failed with HTTP ${response.status}.`);
+  const rows = await response.json();
+  return rows.map((row) => row.document).filter(Boolean);
+}
+
 /** Return a decoded scalar from a Firestore REST document. */
 export function firestoreField(document, name) {
   const field = document?.fields?.[name];

@@ -176,7 +176,8 @@ npm run build
 2. ينشئ الحجز الإلكتروني إشعار الحلاق داخل معاملة Firestore نفسها. حجز الزائر
    يحصل على رمز متابعة عشوائي قوي لا يظهر إلا للمالك؛ صفحة `/track` ترسل الرمز
    إلى `/api/guest-booking` عبر POST، وتعيد الدالة بيانات محدودة بعد مطابقته.
-   لا تسمح قواعد Firestore للزائر بقراءة مستند الحجز مباشرة.
+   ويمكن البحث برقم الحجز ذي 6 خانات مع رقم الهاتف المستخدم عند الحجز. لا تسمح
+   قواعد Firestore للزائر بقراءة مستند الحجز مباشرة.
 3. عند قبول أو رفض أو تعديل حجز زائر من لوحة المالك، يفتح التطبيق رسالة واتساب
    جاهزة تتضمن رابط المتابعة المناسب للحالة؛ يجب على المالك ضغط «إرسال» داخل
    واتساب. هذا ليس إرسالاً آلياً عبر WhatsApp API.
@@ -265,7 +266,7 @@ git push -u origin main
    | `VITE_FIREBASE_VAPID_KEY` | … |
    | `VITE_OWNER_EMAIL` | you@gmail.com |
    | `NODE_VERSION` | 20 |
-   | `FIREBASE_SERVICE_ACCOUNT` | *(سرّ، فقط للإشعارات)* محتوى ملف JSON |
+   | `FIREBASE_SERVICE_ACCOUNT` | *(سرّ، للإشعارات ومتابعة حجوزات الزوار)* محتوى ملف JSON |
    | `OWNER_EMAIL` | *(للإشعارات فقط)* you@gmail.com |
 
    اجعل `FIREBASE_SERVICE_ACCOUNT` من نوع **Encrypt** (سرّ مشفّر).
@@ -438,7 +439,7 @@ git push -u origin main
 | لا توجد أوقات متاحة | تحقق من أوقات العمل وأيام الراحة والمواعيد المحجوبة ومفتاح المحل (الحجز في نفس اليوم يتطلب **مفتوح الآن**) وإعداد أقصى مدة للحجز. |
 | لا يظهر إشعار Push أو لا يُحفظ التفعيل | سجّل الدخول وافتح الجرس ثم اضغط **تفعيل الإشعارات** واسمح للمتصفح؛ تحقق من أن `VITE_FIREBASE_VAPID_KEY` ومفاتيح Firebase موجودة في إعدادات البناء، ثم أعد البناء والنشر. افحص أن `/firebase-messaging-sw.js` يهيّئ `firebase.initializeApp({...})` ولا يحتوي `__FIREBASE_CONFIG__`. |
 | الحجز أو تحديثات المالك لا ترسل Push | بالإضافة إلى تسجيل الجهاز، اضبط `FIREBASE_SERVICE_ACCOUNT` و`OWNER_EMAIL` في إعدادات **Cloudflare Worker أو Pages حسب طريقة النشر**، وامنح حساب الخدمة دوري `Firebase Cloud Messaging API Admin` و`Cloud Datastore Viewer`. راجع استجابة `/api/booking-created` أو `/api/send-push` وسجلات Cloudflare؛ إشعارات الجرس داخل التطبيق منفصلة وتعمل دون هذه المتغيرات. |
-| رابط متابعة الزائر لا يعمل | تحقق من نشر `functions/api/guest-booking.js` (أو Worker المحدّث) ومن وجود `FIREBASE_SERVICE_ACCOUNT` مع دور `Cloud Datastore Viewer`. الروابط القديمة التي أُنشئت قبل إضافة الرمز لا تتضمن رابط متابعة. |
+| تظهر رسالة `Guest booking lookup is not configured` أو تتعذر متابعة الزائر | أضف `FIREBASE_SERVICE_ACCOUNT` كسرّ **من دون بادئة `VITE_`** في بيئة الإنتاج الحالية لـ Cloudflare Pages أو في Worker الذي يستقبل `/api/guest-booking`، ثم أعد النشر. يجب أن يتضمن JSON `project_id` وأن يمتلك حساب الخدمة دور `Cloud Datastore Viewer`. روابط المتابعة القديمة لا تتضمن رمزاً، لكن يمكن البحث عنها برقم الحجز ورقم الهاتف. |
 | خطأ Firestore "index required" | انشر الفهارس: `firebase deploy --only firestore:indexes`. |
 | أخطاء الـ Service Worker أو FCM في التطوير | الملف المولَّد يحتاج قيم Firebase حقيقية في `.env`؛ الإشعارات تعمل فقط على HTTPS (أو localhost). |
 

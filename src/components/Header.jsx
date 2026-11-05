@@ -152,6 +152,9 @@ export default function Header() {
             <NavLink to="/booking" className={linkClass}>
               {t.nav.booking}
             </NavLink>
+            <NavLink to="/track" className={linkClass}>
+              {t.nav.trackBooking}
+            </NavLink>
             {user && (
               <NavLink to="/bookings" className={linkClass}>
                 {t.nav.myBookings}
