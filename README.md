@@ -332,7 +332,7 @@ git push -u origin main
 | `services` | auto-id | `name, price (دج), estimatedMinutes, image, active, createdAt` |
 | `bookings` | auto-id | `userId (null للضيوف), guestTrackingToken (رمز عشوائي 256-bit للضيف، لا يقرأه إلا المالك), name, phone, serviceId, serviceName, price, durationMinutes, date (YYYY-MM-DD), scheduledStart, scheduledEnd, expectedStart, expectedEnd, actualStart, actualEnd, status, proposedDate, proposedTime, clientProposedDate, clientProposedTime, barberMessage, notes, source ('online'\|'walk_in'\|'manual'), code, createdAt, updatedAt` |
 | `notifications` | auto-id | `userId, bookingId, title, body, read, createdAt` |
-| `settings/public` | ثابت | `shopOpen` (حالة المحل المعروضة فقط), `sameDayBookingsEnabled` (إيقاف/تشغيل حجوزات اليوم), `shopName, phone, address, ownerUid, weeklyHours, breaks, daysOff, blockedSlots, slotInterval, maxAdvanceDays, minLeadMinutes, soundAlerts` |
+| `settings/public` | ثابت | `shopOpen` (حالة المحل المعروضة فقط), `sameDayBookingsEnabled` (إيقاف/تشغيل حجوزات اليوم), `shopNameAr, shopNameFr` (مع دعم `shopName` القديم), `phone, address, shopLocationLatitude, shopLocationLongitude, ownerUid, weeklyHours, breaks, daysOff, blockedSlots, slotInterval, maxAdvanceDays, minLeadMinutes, soundAlerts` |
 | `settings/private` | ثابت | `whatsappTemplates { accept, decline, acceptModified, delay }` |
 | `dailyQueue/{date}` | ثابت | `date, entries: { [bookingId]: { bookingId, expectedStart, durationMinutes, status } }, updatedAt` — **بدون أسماء أو هواتف**، حتى يرى الزبون ترتيبه ويعرف الأوقات المشغولة دون قراءة حجوزات الآخرين (يُضاف إليها مدخل الزبون نفسه داخل نفس معاملة الحجز) |
 
@@ -340,10 +340,15 @@ git push -u origin main
 > `{ bookingId, expectedStart, durationMinutes, status }`. هذا يمنع برمجياً وضع مدخل
 > حجز تحت مفتاح حجز آخر، ويسمح للقواعد بتحديث مدخل واحد بالضبط دون المساس ببقية
 > المدخلات.
+
 >
 > **التوافق مع الشكل القديم (Array)**: المستندات القديمة التي تحفظ `entries` كمصفوفة
 > `[{ bookingId, … }]` تبقى **مقروءة** (كل مسار قراءة يقبل الشكلين)، وكل عملية كتابة
 > تُحوِّل مستند اليوم تلقائياً إلى شكل الـ Map. راجع القسم 13ب للترحيل الكامل.
+
+تُعدّل معلومات المحل من لوحة التحكم ← **الإعدادات**. يمكن تحديد الموقع بالنقر
+على الخريطة أو سحب العلامة أو استخدام موقع الجهاز؛ ويُعرض الموقع والهاتف والاسمان
+العربي والفرنسي في واجهة التطبيق العامة.
 
 **حالات الحجز**: `pending` (قيد الانتظار) ← `accepted` (مقبول) /
 `accepted_modified` (مقبول بتعديل الوقت، يحتاج تأكيد الزبون) ← `in_progress` (قيد التنفيذ)

@@ -311,7 +311,7 @@ function BookingCard({ booking, settings, highlighted = false }) {
 
         {settings.phone && (
           <a className="btn-ghost btn-sm" href={telLink(settings.phone)}>
-            <PhoneCall size={14} /> {t.myBookings.callShop}
+            <PhoneCall size={14} /> {t.owner.callShop}
           </a>
         )}
 

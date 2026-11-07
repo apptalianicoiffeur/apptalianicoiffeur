@@ -12,6 +12,8 @@ import { DEFAULT_TEMPLATES, TEMPLATE_KEYS, fillTemplate, templateVars } from '..
 import { formatDateLong, todayISO } from '../../utils/datetime';
 import { fetchPrayerBreaks, fetchPrayerTimings } from '../../services/prayerTimes';
 import { Field, Spinner, Toggle } from '../../components/ui';
+import ShopLocationMap from '../../components/owner/ShopLocationMap';
+import { shopCoordinates } from '../../utils/shopInfo';
 
 const TAB_LABELS = {
   accept: t.owner.templateAccept,
@@ -57,7 +59,14 @@ export default function SettingsPage() {
   const { toast } = useToast();
   const [tab, setTab] = useState('accept');
   const [drafts, setDrafts] = useState(templates);
-  const [shop, setShop] = useState({ shopName: '', phone: '', address: '' });
+  const [shop, setShop] = useState({
+    shopNameAr: '',
+    shopNameFr: '',
+    phone: '',
+    address: '',
+    shopLocationLatitude: '',
+    shopLocationLongitude: '',
+  });
   const [prayerSettings, setPrayerSettings] = useState(settings.prayerBreakSettings);
   const [busy, setBusy] = useState(false);
   const [savingTpl, setSavingTpl] = useState(false);
@@ -71,9 +80,12 @@ export default function SettingsPage() {
   useEffect(
     () =>
       setShop({
-        shopName: settings.shopName || '',
+        shopNameAr: settings.shopNameAr || settings.shopName || '',
+        shopNameFr: settings.shopNameFr || '',
         phone: settings.phone || '',
         address: settings.address || '',
+        shopLocationLatitude: settings.shopLocationLatitude || '',
+        shopLocationLongitude: settings.shopLocationLongitude || '',
       }),
     [settings]
   );
@@ -143,11 +155,11 @@ export default function SettingsPage() {
 
   const previewVars = useMemo(
     () => ({
-      ...templateVars(SAMPLE, { shopName: shop.shopName }),
+      ...templateVars(SAMPLE, { shopNameAr: shop.shopNameAr }),
       date: formatDateLong(SAMPLE.date),
       new_date: formatDateLong(SAMPLE.proposedDate),
     }),
-    [shop.shopName]
+    [shop.shopNameAr]
   );
 
   const insertPlaceholder = (token) => {
@@ -170,7 +182,34 @@ export default function SettingsPage() {
         toast(t.validation.phoneInvalid, 'error');
         return;
       }
-      await savePublic({ shopName: shop.shopName.trim(), phone, address: shop.address.trim() });
+      const latitude = String(shop.shopLocationLatitude || '').trim();
+      const longitude = String(shop.shopLocationLongitude || '').trim();
+      if (Boolean(latitude) !== Boolean(longitude)) {
+        toast(t.owner.shopCoordinatesPair, 'error');
+        return;
+      }
+      if (
+        latitude &&
+        (!Number.isFinite(Number(latitude)) ||
+          Number(latitude) < -90 ||
+          Number(latitude) > 90 ||
+          !Number.isFinite(Number(longitude)) ||
+          Number(longitude) < -180 ||
+          Number(longitude) > 180)
+      ) {
+        toast(t.owner.shopCoordinatesInvalid, 'error');
+        return;
+      }
+      const shopNameAr = shop.shopNameAr.trim();
+      await savePublic({
+        shopName: shopNameAr,
+        shopNameAr,
+        shopNameFr: shop.shopNameFr.trim(),
+        phone,
+        address: shop.address.trim(),
+        shopLocationLatitude: latitude,
+        shopLocationLongitude: longitude,
+      });
       toast(t.app.saved);
     } catch {
       toast(t.errors.actionFailed, 'error');
@@ -281,21 +320,83 @@ export default function SettingsPage() {
       {/* Shop info */}
       <section className="card p-4 mb-5">
         <h2 className="section-title mb-4">{t.owner.shopInfo}</h2>
-        <Field label={t.owner.shopName}>
-          <input className="input" value={shop.shopName} onChange={(e) => setShop({ ...shop, shopName: e.target.value })} />
-        </Field>
+        <div className="grid sm:grid-cols-2 gap-3">
+          <Field label={t.owner.shopNameAr}>
+            <input
+              className="input"
+              value={shop.shopNameAr}
+              onChange={(e) => setShop((draft) => ({ ...draft, shopNameAr: e.target.value }))}
+            />
+          </Field>
+          <Field label={t.owner.shopNameFr}>
+            <input
+              className="input"
+              dir="ltr"
+              value={shop.shopNameFr}
+              onChange={(e) => setShop((draft) => ({ ...draft, shopNameFr: e.target.value }))}
+            />
+          </Field>
+        </div>
         <Field label={t.owner.shopPhone} hint={DEFAULT_COUNTRY_CODE}>
           <input
             className="input"
             dir="ltr"
             inputMode="tel"
             value={shop.phone}
-            onChange={(e) => setShop({ ...shop, phone: e.target.value })}
+            onChange={(e) => setShop((draft) => ({ ...draft, phone: e.target.value }))}
           />
         </Field>
         <Field label={t.owner.shopAddress}>
-          <input className="input" value={shop.address} onChange={(e) => setShop({ ...shop, address: e.target.value })} />
+          <input
+            className="input"
+            value={shop.address}
+            onChange={(e) => setShop((draft) => ({ ...draft, address: e.target.value }))}
+          />
         </Field>
+        <p className="label">{t.owner.shopLocation}</p>
+        <p className="text-[11px] text-slate-400 leading-relaxed mb-3">{t.owner.shopLocationHint}</p>
+        <ShopLocationMap
+          position={shopCoordinates(shop)}
+          onChange={([latitude, longitude]) =>
+            setShop((draft) => ({
+              ...draft,
+              shopLocationLatitude: latitude.toFixed(7),
+              shopLocationLongitude: longitude.toFixed(7),
+            }))
+          }
+        />
+        <div className="grid sm:grid-cols-2 gap-3 mt-4">
+          <Field label={t.owner.shopLatitude}>
+            <input
+              className="input"
+              type="number"
+              min="-90"
+              max="90"
+              step="any"
+              dir="ltr"
+              inputMode="decimal"
+              value={shop.shopLocationLatitude}
+              onChange={(e) =>
+                setShop((draft) => ({ ...draft, shopLocationLatitude: e.target.value }))
+              }
+            />
+          </Field>
+          <Field label={t.owner.shopLongitude}>
+            <input
+              className="input"
+              type="number"
+              min="-180"
+              max="180"
+              step="any"
+              dir="ltr"
+              inputMode="decimal"
+              value={shop.shopLocationLongitude}
+              onChange={(e) =>
+                setShop((draft) => ({ ...draft, shopLocationLongitude: e.target.value }))
+              }
+            />
+          </Field>
+        </div>
         <button className="btn-gold w-full" onClick={saveShop} disabled={busy}>
           {busy ? <Spinner size={16} /> : <Save size={16} />} {t.app.saveChanges}
         </button>

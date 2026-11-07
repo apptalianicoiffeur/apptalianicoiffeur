@@ -13,6 +13,9 @@ import { WEEKDAY_NAMES } from '../utils/datetime';
 import ServiceCard from '../components/ServiceCard';
 import { GoogleSignInButton, ShopStatusBadge } from '../components/shared';
 import { EmptyState, FullSpinner } from '../components/ui';
+import ShopLocationMap from '../components/owner/ShopLocationMap';
+import { shopCoordinates, shopMapUrl, shopNames } from '../utils/shopInfo';
+import { telLink } from '../utils/whatsapp';
 
 const WHY = [
   { icon: Zap, title: t.landing.why1Title, body: t.landing.why1Body },
@@ -24,6 +27,8 @@ export default function Landing() {
   const { settings, loading: settingsLoading } = useSettings();
   const { user, isOwner } = useAuth();
   const { data: services, loading: servicesLoading } = useServices();
+  const shop = shopNames(settings);
+  const location = shopCoordinates(settings);
 
   const hoursRows = useMemo(() => {
     // Show Saturday first (local convention), then the rest of the week.
@@ -36,9 +41,8 @@ export default function Landing() {
     }));
   }, [settings]);
 
-  const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-    settings.address || settings.shopName || 'Algeria'
-  )}`;
+  const mapsUrl = shopMapUrl(settings);
+  const shopPhoneLink = telLink(settings.phone);
 
   if (settingsLoading) return <FullSpinner />;
 
@@ -55,10 +59,11 @@ export default function Landing() {
             <ShopStatusBadge settings={settings} />
           </div>
           <h1 className="text-3xl sm:text-5xl font-black leading-tight text-balance">
-            <span className="text-gold-400">{t.app.name}</span>
+            <span className="text-gold-400">{shop.arabic}</span>
             <br />
             {t.landing.heroTitle}
           </h1>
+          <p className="mt-2 text-sm text-gold-200/80" dir="ltr">{shop.french}</p>
           <p className="mt-4 text-slate-300 leading-relaxed max-w-xl mx-auto text-sm sm:text-base">
             {t.landing.heroSubtitle}
           </p>
@@ -168,23 +173,36 @@ export default function Landing() {
           <MapPin size={18} className="text-gold-400" />
           {t.landing.locationTitle}
         </h2>
-        <div className="card p-6 flex flex-col items-center text-center gap-3">
-          <div className="w-full h-36 rounded-2xl bg-ink-700 border border-dashed border-ink-400 flex flex-col items-center justify-center gap-2 text-slate-400">
-            <MapPin size={26} className="text-gold-400" />
-            <p className="text-xs">{t.landing.locationHint}</p>
-          </div>
+        <div className="card p-4 sm:p-6 flex flex-col items-center text-center gap-3">
+          {location ? (
+            <ShopLocationMap position={location} interactive={false} />
+          ) : (
+            <div className="w-full h-36 rounded-2xl bg-ink-700 border border-dashed border-ink-400 flex flex-col items-center justify-center gap-2 text-slate-400">
+              <MapPin size={26} className="text-gold-400" />
+              <p className="text-xs">{t.landing.locationHint}</p>
+            </div>
+          )}
           <p className="text-sm font-bold text-slate-200">
             {settings.address || t.landing.locationAddress}
           </p>
-          <a href={mapsUrl} target="_blank" rel="noreferrer" className="btn-outline btn-sm">
-            {t.landing.openInMaps}
-          </a>
+          <div className="flex flex-wrap justify-center gap-2">
+            {mapsUrl && (
+              <a href={mapsUrl} target="_blank" rel="noreferrer" className="btn-outline btn-sm">
+                {t.owner.openShopLocation}
+              </a>
+            )}
+            {shopPhoneLink && (
+              <a href={shopPhoneLink} className="btn-ghost btn-sm">
+                {t.owner.callShop}: {settings.phone}
+              </a>
+            )}
+          </div>
         </div>
       </section>
 
       <footer className="mt-12 mb-6 text-center text-xs text-slate-500">
         <div className="barber-divider opacity-40 mb-4" />
-        © {new Date().getFullYear()} {t.app.name} — {t.landing.footerRights}
+        © {new Date().getFullYear()} {shop.arabic} · <span dir="ltr">{shop.french}</span> — {t.landing.footerRights}
       </footer>
     </div>
   );

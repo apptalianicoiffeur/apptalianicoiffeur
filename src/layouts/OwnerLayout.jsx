@@ -25,6 +25,7 @@ import { useQueueSync } from '../hooks/useQueueSync';
 import { migrateLegacyQueueDocs } from '../services/queueMigration';
 import { todayISO } from '../utils/datetime';
 import { playChime } from '../utils/sound';
+import { shopNames } from '../utils/shopInfo';
 import { ShopStatusBadge } from '../components/shared';
 import NotificationBell from '../components/NotificationBell';
 import ThemeToggle from '../components/ThemeToggle';
@@ -41,6 +42,7 @@ const NAV = [
 
 export default function OwnerLayout() {
   const { settings, savePublic } = useSettings();
+  const shop = shopNames(settings);
   const { user, isOwner } = useAuth();
   const { latestId } = useNotifications();
   const today = todayISO();
@@ -97,7 +99,9 @@ export default function OwnerLayout() {
             <img src="/icons/icon.svg" alt="" className="w-9 h-9 rounded-xl" />
             <div className="min-w-0">
               <p className="font-extrabold text-sm truncate">{t.owner.dashboard}</p>
-              <p className="text-[10px] text-gold-400 truncate">{settings.shopName || t.app.name}</p>
+              <p className="text-[10px] text-gold-400 truncate">
+                {shop.arabic} <span dir="ltr">· {shop.french}</span>
+              </p>
             </div>
           </div>
           <div className="flex items-center gap-2">

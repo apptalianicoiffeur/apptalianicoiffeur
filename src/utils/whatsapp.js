@@ -52,7 +52,7 @@ export function templateVars(booking, settings = {}) {
     new_date: booking?.proposedDate || '',
     new_time: booking?.proposedTime || booking?.expectedStart || '',
     old_time: booking?.scheduledStart || '',
-    shop_name: settings?.shopName || 'طالياني كوافير',
+    shop_name: settings?.shopNameAr || settings?.shopName || 'طالياني كوافير',
     price: booking?.price ?? '',
   };
 }

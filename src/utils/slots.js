@@ -17,8 +17,12 @@ export const DEFAULT_SETTINGS = {
   shopOpen: false,
   sameDayBookingsEnabled: true,
   shopName: 'طالياني كوافير',
+  shopNameAr: 'طالياني كوافير',
+  shopNameFr: 'Taliani Coiffeur',
   phone: '',
   address: '',
+  shopLocationLatitude: '',
+  shopLocationLongitude: '',
   ownerUid: '',
   prayerBreakSettings: {
     enabled: false,
@@ -60,6 +64,21 @@ export const DEFAULT_SETTINGS = {
 export function withDefaults(settings) {
   const s = { ...DEFAULT_SETTINGS, ...(settings || {}) };
   if (s.shopName === 'تالياني كوفير') s.shopName = 'طالياني كوافير';
+  s.shopNameAr =
+    typeof settings?.shopNameAr === 'string' && settings.shopNameAr.trim()
+      ? settings.shopNameAr.trim()
+      : typeof s.shopName === 'string' && s.shopName.trim()
+        ? s.shopName.trim()
+        : DEFAULT_SETTINGS.shopNameAr;
+  s.shopNameFr =
+    typeof settings?.shopNameFr === 'string' && settings.shopNameFr.trim()
+      ? settings.shopNameFr.trim()
+      : DEFAULT_SETTINGS.shopNameFr;
+  s.shopName = s.shopNameAr;
+  s.shopLocationLatitude =
+    settings?.shopLocationLatitude == null ? '' : String(settings.shopLocationLatitude);
+  s.shopLocationLongitude =
+    settings?.shopLocationLongitude == null ? '' : String(settings.shopLocationLongitude);
   s.weeklyHours = { ...DEFAULT_SETTINGS.weeklyHours, ...(settings?.weeklyHours || {}) };
   const prayerSettings = settings?.prayerBreakSettings || {};
   s.prayerBreakSettings = {

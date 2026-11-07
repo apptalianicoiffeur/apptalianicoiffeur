@@ -365,7 +365,7 @@ export async function ownerCreateWalkIn(payload, settings) {
           service: payload.serviceName,
           date: formatDateLong(payload.date),
           time: payload.time,
-          shop_name: settings?.shopName || 'طالياني كوافير',
+          shop_name: settings?.shopNameAr || settings?.shopName || 'طالياني كوافير',
         }),
       }
     : null;

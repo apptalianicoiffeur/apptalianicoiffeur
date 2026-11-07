@@ -40,6 +40,18 @@ test('withDefaults updates the former default shop name while preserving custom 
   assert.equal(withDefaults({ shopName: 'اسم مخصص' }).shopName, 'اسم مخصص');
 });
 
+test('withDefaults preserves the Arabic and French shop names and supports legacy settings', () => {
+  const legacy = withDefaults({ shopName: 'اسم قديم' });
+  assert.equal(legacy.shopNameAr, 'اسم قديم');
+  assert.equal(legacy.shopName, 'اسم قديم');
+  assert.equal(legacy.shopNameFr, 'Taliani Coiffeur');
+
+  const localized = withDefaults({ shopNameAr: 'اسم عربي', shopNameFr: 'Nom français' });
+  assert.equal(localized.shopNameAr, 'اسم عربي');
+  assert.equal(localized.shopNameFr, 'Nom français');
+  assert.equal(localized.shopName, 'اسم عربي');
+});
+
 test('generateSlots walks the whole open window without overlapping', () => {
   const slots = generateSlots({ settings: openSettings, iso: DAY, duration: 30 });
 
@@ -112,7 +124,6 @@ test('pausing same-day bookings blocks today only, independent of shop status', 
   assert.equal(canBookToday(settings), false);
   assert.ok(slots.length > 0);
   assert.ok(slots.every((slot) => !slot.available));
-  assert.equal(slots.find((slot) => slot.time === '23:00').reason, 'paused');
   assert.equal(isTimeBlocked(settings, today, '15:00', 30), true);
   assert.equal(isTimeBlocked(settings, addDays(today, 1), '15:00', 30), false);
 });

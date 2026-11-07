@@ -2,7 +2,7 @@
  * Client header: logo, live shop status, desktop nav links, notification bell
  * and the account menu.
  */
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, NavLink } from 'react-router-dom';
 import {
   ClipboardList,
@@ -17,6 +17,7 @@ import t from '../i18n/ar';
 import { useAuth } from '../context/AuthContext';
 import { useSettings } from '../context/SettingsContext';
 import { useToast } from '../context/ToastContext';
+import { shopNames } from '../utils/shopInfo';
 import { AuthModal, ShopStatusBadge, useOutsideClose } from './shared';
 import NotificationBell from './NotificationBell';
 import ThemeToggle from './ThemeToggle';
@@ -132,9 +133,14 @@ function UserMenu({ onLinkPassword }) {
 
 export default function Header() {
   const { settings } = useSettings();
+  const shop = shopNames(settings);
   const { user } = useAuth();
   const [authOpen, setAuthOpen] = useState(false);
   const [authMode, setAuthMode] = useState('signin');
+
+  useEffect(() => {
+    document.title = `${shop.arabic} — ${shop.french}`;
+  }, [shop.arabic, shop.french]);
 
   const openPasswordLink = () => {
     setAuthMode('link');
@@ -148,8 +154,8 @@ export default function Header() {
           <Link to="/" className="flex items-center gap-2.5 min-w-0">
             <img src="/icons/icon.svg" alt="" className="w-10 h-10 rounded-xl shrink-0" />
             <div className="min-w-0">
-              <p className="font-extrabold leading-tight truncate">{t.app.name}</p>
-              <p className="text-[10px] text-gold-400 font-semibold truncate">{t.app.tagline}</p>
+              <p className="font-extrabold leading-tight truncate">{shop.arabic}</p>
+              <p className="text-[10px] text-gold-400 font-semibold truncate" dir="ltr">{shop.french}</p>
             </div>
           </Link>
 
