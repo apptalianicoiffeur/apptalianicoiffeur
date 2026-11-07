@@ -1,6 +1,6 @@
 import { buildPrayerBreaks } from '../utils/prayerTimes';
 
-const responseCache = new Map();
+const timingsCache = new Map();
 const COUNTRY_METHODS = {
   algeria: '19',
   'الجزائر': '19',
@@ -24,10 +24,10 @@ function apiDate(iso) {
   return `${day}-${month}-${year}`;
 }
 
-/** Fetch prayer times using the provider's country-default calculation method. */
-export async function fetchPrayerBreaks(settings, iso) {
+/** Fetch unadjusted daily prayer times for a location and calculation method. */
+export async function fetchPrayerTimings(settings, iso) {
   const config = settings?.prayerBreakSettings;
-  if (!config?.enabled) return [];
+  if (!config) throw new PrayerTimesError('Prayer time settings are required.');
   const hasLatitude = String(config.latitude ?? '').trim() !== '';
   const hasLongitude = String(config.longitude ?? '').trim() !== '';
   const hasCoordinates = hasLatitude && hasLongitude;
@@ -44,11 +44,8 @@ export async function fetchPrayerBreaks(settings, iso) {
     config.method || '',
     config.school ?? 0,
     iso,
-    config.beforeMinutes,
-    config.afterMinutes,
-    config.adjustments || {},
   ]);
-  if (responseCache.has(key)) return responseCache.get(key);
+  if (timingsCache.has(key)) return timingsCache.get(key);
 
   const request = (async () => {
     const params = new URLSearchParams();
@@ -90,18 +87,30 @@ export async function fetchPrayerBreaks(settings, iso) {
       throw new PrayerTimesError('Prayer time service returned invalid data.');
     }
 
-    const windows = buildPrayerBreaks(result.data.timings, config);
-    if (windows.length !== 5) {
+    const timings = result.data.timings;
+    if (!['Fajr', 'Dhuhr', 'Asr', 'Maghrib', 'Isha'].every((prayer) => timings[prayer])) {
       throw new PrayerTimesError('Prayer time service did not return all daily prayers.');
     }
-    return windows;
+    return timings;
   })();
 
-  responseCache.set(key, request);
+  timingsCache.set(key, request);
   try {
     return await request;
   } catch (error) {
-    responseCache.delete(key);
+    timingsCache.delete(key);
     throw error;
   }
+}
+
+/** Fetch prayer times and convert them into configured booking-break windows. */
+export async function fetchPrayerBreaks(settings, iso) {
+  const config = settings?.prayerBreakSettings;
+  if (!config?.enabled) return [];
+  const timings = await fetchPrayerTimings(settings, iso);
+  const windows = buildPrayerBreaks(timings, config);
+  if (windows.length !== 5) {
+    throw new PrayerTimesError('Prayer time service did not return all daily prayers.');
+  }
+  return windows;
 }

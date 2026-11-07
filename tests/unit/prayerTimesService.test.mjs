@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { fetchPrayerBreaks, PrayerTimesError } from '../../src/services/prayerTimes';
+import { fetchPrayerBreaks, fetchPrayerTimings, PrayerTimesError } from '../../src/services/prayerTimes';
 
 test('fetchPrayerBreaks uses local date and the provider country-default method', async () => {
   const originalFetch = globalThis.fetch;
@@ -139,6 +139,46 @@ test('fetchPrayerBreaks chooses Algeria calculation when coordinates are used wi
     );
 
     assert.equal(requestedUrl.searchParams.get('method'), '19');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('fetchPrayerTimings returns calculated times before manual prayer adjustments', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      code: 200,
+      data: {
+        timings: {
+          Fajr: '05:40 (+01)',
+          Dhuhr: '12:20 (+01)',
+          Asr: '15:30 (+01)',
+          Maghrib: '17:50 (+01)',
+          Isha: '19:10 (+01)',
+        },
+      },
+    }),
+  });
+
+  try {
+    const timings = await fetchPrayerTimings(
+      {
+        prayerBreakSettings: {
+          enabled: true,
+          city: 'Test city',
+          country: 'Test country',
+          beforeMinutes: 5,
+          afterMinutes: 15,
+          adjustments: { Fajr: 7 },
+        },
+      },
+      '2026-11-07'
+    );
+
+    assert.equal(timings.Fajr, '05:40 (+01)');
+    assert.equal(timings.Isha, '19:10 (+01)');
   } finally {
     globalThis.fetch = originalFetch;
   }

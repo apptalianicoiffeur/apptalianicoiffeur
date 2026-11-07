@@ -10,7 +10,7 @@ import { useToast } from '../../context/ToastContext';
 import { DEFAULT_COUNTRY_CODE, normalizePhone } from '../../utils/phone';
 import { DEFAULT_TEMPLATES, TEMPLATE_KEYS, fillTemplate, templateVars } from '../../utils/whatsapp';
 import { formatDateLong, todayISO } from '../../utils/datetime';
-import { fetchPrayerBreaks } from '../../services/prayerTimes';
+import { fetchPrayerBreaks, fetchPrayerTimings } from '../../services/prayerTimes';
 import { Field, Spinner, Toggle } from '../../components/ui';
 
 const TAB_LABELS = {
@@ -30,6 +30,14 @@ const PLACEHOLDERS = [
   '{old_time}',
   '{shop_name}',
   '{price}',
+];
+
+const PRAYER_OPTIONS = [
+  ['Fajr', t.owner.prayerFajr],
+  ['Dhuhr', t.owner.prayerDhuhr],
+  ['Asr', t.owner.prayerAsr],
+  ['Maghrib', t.owner.prayerMaghrib],
+  ['Isha', t.owner.prayerIsha],
 ];
 
 /** A sample booking used for the live preview. */
@@ -55,6 +63,8 @@ export default function SettingsPage() {
   const [savingTpl, setSavingTpl] = useState(false);
   const [savingPrayer, setSavingPrayer] = useState(false);
   const [prayerError, setPrayerError] = useState('');
+  const [prayerPreviewDate, setPrayerPreviewDate] = useState(todayISO);
+  const [prayerPreview, setPrayerPreview] = useState({ key: '', timings: null, loading: false, error: false });
   const textareaRef = useRef(null);
 
   useEffect(() => setDrafts(templates), [templates]);
@@ -68,6 +78,68 @@ export default function SettingsPage() {
     [settings]
   );
   useEffect(() => setPrayerSettings(settings.prayerBreakSettings), [settings.prayerBreakSettings]);
+
+  const prayerPreviewKey = JSON.stringify({
+    date: prayerPreviewDate,
+    city: prayerSettings.city,
+    country: prayerSettings.country,
+    latitude: prayerSettings.latitude,
+    longitude: prayerSettings.longitude,
+    method: prayerSettings.method,
+    school: prayerSettings.school,
+  });
+  const prayerPreviewSettings = useMemo(
+    () => ({
+      prayerBreakSettings: {
+        enabled: true,
+        city: prayerSettings.city,
+        country: prayerSettings.country,
+        latitude: prayerSettings.latitude,
+        longitude: prayerSettings.longitude,
+        method: prayerSettings.method,
+        school: prayerSettings.school,
+      },
+    }),
+    [
+      prayerSettings.city,
+      prayerSettings.country,
+      prayerSettings.latitude,
+      prayerSettings.longitude,
+      prayerSettings.method,
+      prayerSettings.school,
+    ]
+  );
+
+  useEffect(() => {
+    if (!prayerSettings.enabled) {
+      setPrayerPreview({ key: prayerPreviewKey, timings: null, loading: false, error: false });
+      return undefined;
+    }
+    if (!prayerPreviewDate) {
+      setPrayerPreview({ key: prayerPreviewKey, timings: null, loading: false, error: false });
+      return undefined;
+    }
+
+    let active = true;
+    const timer = setTimeout(() => {
+      setPrayerPreview({ key: prayerPreviewKey, timings: null, loading: true, error: false });
+      fetchPrayerTimings(prayerPreviewSettings, prayerPreviewDate)
+        .then((timings) => {
+          if (active) setPrayerPreview({ key: prayerPreviewKey, timings, loading: false, error: false });
+        })
+        .catch(() => {
+          if (active) setPrayerPreview({ key: prayerPreviewKey, timings: null, loading: false, error: true });
+        });
+    }, 350);
+
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [prayerSettings.enabled, prayerPreviewSettings, prayerPreviewDate, prayerPreviewKey]);
+
+  const visiblePrayerPreview =
+    prayerPreview.key === prayerPreviewKey ? prayerPreview : { timings: null, loading: true, error: false };
 
   const previewVars = useMemo(
     () => ({
@@ -348,16 +420,46 @@ export default function SettingsPage() {
                 />
               </Field>
             </div>
+            <div className="rounded-2xl border border-ink-500/70 bg-ink-700/40 p-4 mb-5">
+              <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 mb-3">
+                <div>
+                  <p className="text-sm font-extrabold text-slate-100">{t.owner.prayerPreview}</p>
+                  <p className="text-[11px] text-slate-400 mt-1">{t.owner.prayerPreviewHint}</p>
+                </div>
+                <Field label={t.owner.prayerPreviewDate}>
+                  <input
+                    className="input"
+                    type="date"
+                    value={prayerPreviewDate}
+                    onChange={(e) => setPrayerPreviewDate(e.target.value)}
+                  />
+                </Field>
+              </div>
+              {visiblePrayerPreview.loading && (
+                <div className="flex items-center gap-2 text-xs text-slate-400">
+                  <Spinner size={15} /> {t.app.loading}
+                </div>
+              )}
+              {visiblePrayerPreview.error && (
+                <p className="text-xs text-red-400 font-semibold">{t.owner.prayerPreviewError}</p>
+              )}
+              {visiblePrayerPreview.timings && (
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+                  {PRAYER_OPTIONS.map(([prayer, label]) => (
+                    <div key={prayer} className="rounded-xl bg-ink-800/80 px-3 py-2.5 text-center">
+                      <p className="text-[11px] text-slate-400">{label.replace(' (دقائق)', '')}</p>
+                      <p className="mt-1 text-lg font-black text-gold-300" dir="ltr">
+                        {String(visiblePrayerPreview.timings[prayer]).match(/^\d{1,2}:\d{2}/)?.[0] || '—'}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
             <p className="text-xs font-bold text-slate-300 mb-2">{t.owner.prayerAdjustments}</p>
             <p className="text-[11px] text-slate-500 mb-3">{t.owner.prayerAdjustmentsHint}</p>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              {[
-                ['Fajr', t.owner.prayerFajr],
-                ['Dhuhr', t.owner.prayerDhuhr],
-                ['Asr', t.owner.prayerAsr],
-                ['Maghrib', t.owner.prayerMaghrib],
-                ['Isha', t.owner.prayerIsha],
-              ].map(([prayer, label]) => (
+              {PRAYER_OPTIONS.map(([prayer, label]) => (
                 <Field key={prayer} label={label}>
                   <input
                     className="input"
