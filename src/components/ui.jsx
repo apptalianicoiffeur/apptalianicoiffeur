@@ -3,6 +3,7 @@
  * toggle switch and booking status chip.
  */
 import { useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { AlertTriangle, CalendarX2, Loader2, X } from 'lucide-react';
 import t from '../i18n/ar';
 
@@ -69,7 +70,7 @@ export function Modal({ open, onClose, title, children, footer, wide = false }) 
 
   if (!open) return null;
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-[90] flex items-end justify-center overflow-y-auto pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] sm:items-center sm:p-4">
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm animate-fade-in" onClick={onClose} />
       <div
@@ -100,7 +101,8 @@ export function Modal({ open, onClose, title, children, footer, wide = false }) 
           <div className="shrink-0 border-t border-ink-500/70 px-5 py-4 safe-bottom">{footer}</div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 

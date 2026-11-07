@@ -133,6 +133,7 @@ function ProposeModal({ open, onClose, booking, settings, onConfirm }) {
       open={open}
       onClose={onClose}
       title={t.myBookings.proposeAnother}
+      wide
       footer={
         <div className="flex gap-2">
           <button className="btn-ghost flex-1" onClick={onClose}>

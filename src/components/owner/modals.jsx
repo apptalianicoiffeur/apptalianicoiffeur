@@ -70,6 +70,7 @@ export function ModifiedTimeModal({ open, onClose, booking, settings, onConfirm 
       open={open}
       onClose={onClose}
       title={t.owner.modifyTitle}
+      wide
       footer={
         <div className="flex gap-2">
           <button className="btn-ghost flex-1" onClick={onClose}>
