@@ -11,7 +11,7 @@
 import { collection, doc, getDoc, getDocs, limit, query, where } from 'firebase/firestore';
 import { db, COLLECTIONS } from './bootstrap';
 import { STATUS } from '../utils/constants';
-import { addMinutes, formatDateLong } from '../utils/datetime';
+import { addMinutes, formatDateLong, timeToMin } from '../utils/datetime';
 import { normalizePhone } from '../utils/phone';
 import { fillTemplate, templateVars } from '../utils/whatsapp';
 import {
@@ -248,7 +248,7 @@ export async function ownerEndSession(booking) {
  * updates `expectedStart/expectedEnd` (all bookings + their queue entries in
  * ONE transaction) and notifies each affected client.
  */
-export async function ownerApplyShift(changes, settings) {
+export async function ownerApplyShift(changes, settings, { delayBookingId = null } = {}) {
   if (changes.length) {
     await updateBookingsWithQueue(
       changes.map((change) => ({
@@ -260,18 +260,37 @@ export async function ownerApplyShift(changes, settings) {
   for (const change of changes) {
     const b = change.booking;
     const vars = varsFor({ ...b, proposedTime: change.newStart }, settings);
+    const isDelayedBooking = b.id === delayBookingId;
     await notifyUser({
       uid: b.userId,
       bookingId: b.id,
-      title: t.notifications.timeShiftedTitle,
-      body: fill(t.notifications.timeShiftedBody, {
-        ...vars,
-        time: change.newStart,
-        oldTime: b.expectedStart,
-        old_time: b.expectedStart, // WhatsApp template placeholder
-      }),
+      title: isDelayedBooking
+        ? t.notifications.queueDelayedTitle
+        : timeToMin(change.newStart) < timeToMin(b.expectedStart)
+          ? t.notifications.timePulledTitle
+          : t.notifications.timeShiftedTitle,
+      body: isDelayedBooking
+        ? fill(t.notifications.queueDelayedBody, { ...vars, time: change.newStart })
+        : timeToMin(change.newStart) < timeToMin(b.expectedStart)
+          ? fill(t.notifications.timePulledBody, { time: change.newStart })
+          : fill(t.notifications.timeShiftedBody, {
+              ...vars,
+              time: change.newStart,
+              oldTime: b.expectedStart,
+              old_time: b.expectedStart, // WhatsApp template placeholder
+            }),
     });
   }
+}
+
+/** Notify an account-holding client that their turn is approaching. */
+export async function ownerNotifyReady(booking) {
+  await notifyUser({
+    uid: booking.userId,
+    bookingId: booking.id,
+    title: t.notifications.readyTitle,
+    body: fill(t.notifications.readyBody, { time: booking.expectedStart }),
+  });
 }
 
 /** Pull the next client forward into a free gap (barber approval = the tap). */

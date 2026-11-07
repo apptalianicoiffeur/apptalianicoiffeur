@@ -10,7 +10,7 @@
  *   message is offered for each of them.
  */
 import { useEffect, useMemo, useState } from 'react';
-import { CalendarClock, CheckCircle2, Loader2, MessageCircle, PhoneCall, Play, Plus, Timer, UserX, Users, X, XCircle } from 'lucide-react';
+import { ArrowDown, BellRing, CalendarClock, CheckCircle2, Loader2, MessageCircle, PhoneCall, Play, Plus, Timer, UserX, Users, X, XCircle } from 'lucide-react';
 import t from '../../i18n/ar';
 import { useSettings } from '../../context/SettingsContext';
 import { useToast } from '../../context/ToastContext';
@@ -21,11 +21,13 @@ import {
   ownerApplyShift,
   ownerCreateWalkIn,
   ownerEndSession,
+  ownerNotifyReady,
   ownerPullForward,
   ownerSetStatus,
   ownerStartSession,
 } from '../../services/bookingActions';
 import { fillTemplate, telLink } from '../../utils/whatsapp';
+import { delayQueueBooking } from '../../utils/queue';
 import { EmptyState, StatusChip } from '../ui';
 import RequestActions, { WhatsAppButton } from './RequestActions';
 import { WalkInModal } from './modals';
@@ -210,6 +212,22 @@ export default function QueuePanel({ date, bookings, services, onChanged }) {
           const gapBefore = prevEnd !== null ? timeToMin(b.expectedStart) - prevEnd : 0;
           const shifted = b.expectedStart !== b.scheduledStart;
           const isCurrent = b.status === STATUS.IN_PROGRESS;
+          const canManageSession = [STATUS.ACCEPTED, STATUS.ACCEPTED_MODIFIED].includes(b.status);
+          const canNotifyReady = [
+            STATUS.PENDING,
+            STATUS.ACCEPTED,
+            STATUS.ACCEPTED_MODIFIED,
+            STATUS.IN_PROGRESS,
+          ].includes(b.status);
+          const nextBooking = queue[idx + 1];
+          const delayChanges = canManageSession ? delayQueueBooking(queue, idx) : [];
+          const delayHasUnnotifiableClient = delayChanges.some((change) => !change.booking.userId);
+          const canDelay =
+            canManageSession &&
+            nextBooking &&
+            nextBooking.status !== STATUS.IN_PROGRESS &&
+            delayChanges.length > 0 &&
+            !delayHasUnnotifiableClient;
 
           return (
             <div key={b.id}>
@@ -264,7 +282,7 @@ export default function QueuePanel({ date, bookings, services, onChanged }) {
                     <RequestActions booking={b} onChanged={onChanged} />
                   )}
 
-                  {[STATUS.ACCEPTED, STATUS.ACCEPTED_MODIFIED].includes(b.status) && (
+                  {canManageSession && (
                     <div className="flex flex-wrap gap-2 items-center">
                       <button
                         className="btn-gold btn-sm"
@@ -280,6 +298,27 @@ export default function QueuePanel({ date, bookings, services, onChanged }) {
                       >
                         {busyId === b.id ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />}
                         {t.owner.startSession}
+                      </button>
+                      <button
+                        className="btn-outline btn-sm"
+                        disabled={busyId === b.id || !canDelay}
+                        onClick={() =>
+                          guard(b.id, async () => {
+                            await ownerApplyShift(delayChanges, settings, { delayBookingId: b.id });
+                            toast(fillTemplate(t.owner.clientDelayed, { name: b.name }));
+                            onChanged?.();
+                          })
+                        }
+                        title={
+                          delayHasUnnotifiableClient
+                            ? t.owner.delayGuestUnavailable
+                            : !canDelay
+                              ? t.owner.noClientBehind
+                              : undefined
+                        }
+                      >
+                        {busyId === b.id ? <Loader2 size={13} className="animate-spin" /> : <ArrowDown size={13} />}
+                        {t.owner.delayClient}
                       </button>
                       <button
                         className="btn-danger btn-sm"
@@ -334,6 +373,25 @@ export default function QueuePanel({ date, bookings, services, onChanged }) {
                         {t.owner.endSession}
                       </button>
                       <WhatsAppButton booking={b} templateKey="accept" />
+                    </div>
+                  )}
+
+                  {canNotifyReady && (
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      <button
+                        className="btn-ghost btn-sm"
+                        disabled={busyId === b.id || !b.userId}
+                        onClick={() =>
+                          guard(b.id, async () => {
+                            await ownerNotifyReady(b);
+                            toast(fillTemplate(t.owner.readySent, { name: b.name }));
+                          })
+                        }
+                        title={!b.userId ? t.owner.readyGuestUnavailable : undefined}
+                      >
+                        {busyId === b.id ? <Loader2 size={13} className="animate-spin" /> : <BellRing size={13} />}
+                        {t.owner.ready}
+                      </button>
                     </div>
                   )}
                 </div>

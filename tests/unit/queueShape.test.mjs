@@ -10,6 +10,7 @@ import assert from 'node:assert/strict';
 
 import {
   busyFromQueue,
+  delayQueueBooking,
   entriesToMap,
   entriesToMapReported,
   isLegacyEntries,
@@ -106,6 +107,51 @@ test('queueEntryMatches compares the four stored fields', () => {
   assert.equal(queueEntryMatches({ ...E2, expectedStart: '10:30' }, expected), false);
   assert.equal(queueEntryMatches(null, expected), false);
   assert.equal(queueEntryMatches({ ...E2, durationMinutes: '45' }, expected), false);
+});
+
+test('delayQueueBooking moves one booking behind the next without overlaps', () => {
+  const queue = [
+    { id: 'a', status: 'accepted', expectedStart: '10:00', scheduledStart: '10:00', durationMinutes: 30 },
+    { id: 'b', status: 'accepted', expectedStart: '10:30', scheduledStart: '10:30', durationMinutes: 45 },
+    { id: 'c', status: 'accepted', expectedStart: '11:15', scheduledStart: '11:15', durationMinutes: 30 },
+  ];
+
+  assert.deepEqual(
+    delayQueueBooking(queue, 0).map(({ booking, newStart, newEnd }) => ({
+      id: booking.id,
+      newStart,
+      newEnd,
+    })),
+    [
+      { id: 'a', newStart: '11:15', newEnd: '11:45' },
+      { id: 'c', newStart: '11:45', newEnd: '12:15' },
+    ]
+  );
+});
+
+test('delayQueueBooking keeps the next booking time and cascades only overlaps', () => {
+  const queue = [
+    { id: 'a', status: 'accepted', expectedStart: '10:00', scheduledStart: '10:00', durationMinutes: 30 },
+    { id: 'b', status: 'accepted', expectedStart: '10:30', scheduledStart: '11:00', durationMinutes: 30 },
+    { id: 'c', status: 'accepted', expectedStart: '11:30', scheduledStart: '11:30', durationMinutes: 30 },
+  ];
+
+  assert.deepEqual(
+    delayQueueBooking(queue, 0).map(({ booking, newStart }) => [booking.id, newStart]),
+    [
+      ['a', '11:00'],
+    ]
+  );
+});
+
+test('delayQueueBooking refuses to move the last or running booking', () => {
+  const queue = [
+    { id: 'a', status: 'in_progress', expectedStart: '10:00', scheduledStart: '10:00', durationMinutes: 30 },
+    { id: 'b', status: 'accepted', expectedStart: '10:30', scheduledStart: '10:30', durationMinutes: 30 },
+  ];
+
+  assert.deepEqual(delayQueueBooking(queue, 0), []);
+  assert.deepEqual(delayQueueBooking(queue, 1), []);
 });
 
 test('busyFromQueue: same intervals from both shapes, active statuses only', () => {

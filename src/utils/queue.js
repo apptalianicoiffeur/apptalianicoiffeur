@@ -76,6 +76,57 @@ export function pullForwardAmount(gap, actualEndMin, nextBooking) {
   return Math.max(0, Math.min(gap, nextStart - prevEnd));
 }
 
+/**
+ * Move one booking one position later without overlapping the remaining queue.
+ * The following booking keeps its time; later bookings shift only as needed.
+ */
+export function delayQueueBooking(queue, index) {
+  if (
+    !Array.isArray(queue) ||
+    index < 0 ||
+    index >= queue.length - 1 ||
+    queue[index]?.status === 'in_progress' ||
+    queue[index + 1]?.status === 'in_progress'
+  ) {
+    return [];
+  }
+
+  const next = queue[index + 1];
+  let cursor =
+    timeToMin(next.expectedStart || next.scheduledStart) + Number(next.durationMinutes || 30);
+  const changes = [];
+  const delayed = queue[index];
+  const delayedOldStart = timeToMin(delayed.expectedStart || delayed.scheduledStart);
+  const delayedStart = Math.max(cursor, delayedOldStart, timeToMin(delayed.scheduledStart));
+  const delayedEnd = delayedStart + Number(delayed.durationMinutes || 30);
+  changes.push({
+    booking: delayed,
+    newStart: formatMin(delayedStart),
+    newEnd: formatMin(delayedEnd),
+  });
+  cursor = Math.max(cursor, delayedEnd);
+
+  for (let i = index + 2; i < queue.length; i++) {
+    const booking = queue[i];
+    const oldStart = timeToMin(booking.expectedStart || booking.scheduledStart);
+    const scheduledStart = timeToMin(booking.scheduledStart);
+    const newStart = Math.max(cursor, oldStart, scheduledStart);
+    const duration = Number(booking.durationMinutes || 30);
+    const newEnd = newStart + duration;
+
+    if (newStart !== oldStart) {
+      changes.push({
+        booking,
+        newStart: formatMin(newStart),
+        newEnd: formatMin(newEnd),
+      });
+    }
+    cursor = newEnd;
+  }
+
+  return changes;
+}
+
 /* ------------------------------------------------------------------ */
 /* dailyQueue entry shape                                              */
 /*                                                                     */
