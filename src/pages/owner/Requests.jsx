@@ -139,7 +139,7 @@ function RequestCard({ booking, onChanged, highlighted = false }) {
       )}
       {booking.clientProposedDate && booking.status === STATUS.PENDING && (
         <p className="text-xs text-sky-300 font-bold mt-2">
-          {t.myBookings.yourProposal}: {formatDateLong(booking.clientProposedDate)} —{' '}
+          {t.owner.clientProposal}: {formatDateLong(booking.clientProposedDate)} —{' '}
           {booking.clientProposedTime}
         </p>
       )}

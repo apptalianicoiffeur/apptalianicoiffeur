@@ -270,7 +270,7 @@ export default function QueuePanel({ date, bookings, services, onChanged }) {
                     {b.status === STATUS.IN_PROGRESS && <div className="mt-1"><Elapsed since={b.actualStart || b.expectedStart} /></div>}
                     {b.clientProposedDate && b.status === STATUS.PENDING && (
                       <p className="text-[11px] text-sky-300 mt-1 font-bold">
-                        {t.myBookings.yourProposal}: {b.clientProposedDate} — {b.clientProposedTime}
+                        {t.owner.clientProposal}: {b.clientProposedDate} — {b.clientProposedTime}
                       </p>
                     )}
                   </div>

@@ -217,10 +217,12 @@ function BookingCard({ booking, settings, highlighted = false }) {
           }`}
         >
           <p className="text-[11px] text-slate-400">
-            {modified ? t.myBookings.expectedTime : t.myBookings.expectedTime}
+            {modified ? t.myBookings.barberProposal : t.myBookings.expectedTime}
           </p>
-          <p className="font-extrabold text-gold-300">
-            {modified ? booking.proposedTime : booking.expectedStart}
+          <p className="font-extrabold text-gold-300 text-sm">
+            {modified
+              ? `${formatDateLong(booking.proposedDate)} — ${booking.proposedTime}`
+              : booking.expectedStart}
           </p>
         </div>
       </div>
