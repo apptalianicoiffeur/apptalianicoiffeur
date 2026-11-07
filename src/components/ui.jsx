@@ -70,16 +70,20 @@ export function Modal({ open, onClose, title, children, footer, wide = false }) 
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-[90] flex items-end sm:items-center justify-center">
+    <div className="fixed inset-0 z-[90] flex items-end justify-center overflow-y-auto pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] sm:items-center sm:p-4">
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm animate-fade-in" onClick={onClose} />
       <div
-        className={`relative w-full ${wide ? 'sm:max-w-2xl' : 'sm:max-w-md'} max-h-[88dvh] flex flex-col
+        className={`relative flex min-h-0 w-full shrink-0 flex-col ${wide ? 'sm:max-w-2xl' : 'sm:max-w-md'}
           bg-ink-800 border-t sm:border border-ink-500 rounded-t-3xl sm:rounded-3xl animate-fade-up shadow-card`}
+        style={{
+          maxHeight:
+            'calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 1rem)',
+        }}
         role="dialog"
         aria-modal="true"
         aria-label={title}
       >
-        <div className="flex items-center justify-between gap-3 px-5 pt-5 pb-3 border-b border-ink-500/70">
+        <div className="flex shrink-0 items-center justify-between gap-3 px-5 pt-5 pb-3 border-b border-ink-500/70">
           <h3 className="font-extrabold text-slate-100">{title}</h3>
           <button
             onClick={onClose}
@@ -89,8 +93,12 @@ export function Modal({ open, onClose, title, children, footer, wide = false }) 
             <X size={20} />
           </button>
         </div>
-        <div className="px-5 py-4 overflow-y-auto flex-1">{children}</div>
-        {footer && <div className="px-5 py-4 border-t border-ink-500/70 safe-bottom">{footer}</div>}
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-5 py-4 [webkit-overflow-scrolling:touch]">
+          {children}
+        </div>
+        {footer && (
+          <div className="shrink-0 border-t border-ink-500/70 px-5 py-4 safe-bottom">{footer}</div>
+        )}
       </div>
     </div>
   );

@@ -97,13 +97,13 @@ export default function NotificationBell() {
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
           <div
-            className="fixed inset-x-0 top-[calc(env(safe-area-inset-top)_+_4.5rem)] z-50 mx-auto w-[calc(100vw-1.5rem)] max-w-sm card overflow-hidden animate-pop sm:absolute sm:inset-x-auto sm:left-0 sm:top-auto sm:mx-0 sm:mt-2 sm:w-[86vw]"
+            className="fixed inset-x-0 top-[calc(env(safe-area-inset-top)_+_4.5rem)] z-50 mx-auto flex w-[calc(100vw-1.5rem)] max-w-sm flex-col overflow-hidden card animate-pop sm:absolute sm:inset-x-auto sm:left-0 sm:top-auto sm:mx-0 sm:mt-2 sm:w-[86vw]"
             style={{
               maxHeight:
                 'calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 6rem)',
             }}
           >
-            <div className="flex items-center justify-between px-4 py-3 border-b border-ink-500/70">
+            <div className="flex shrink-0 items-center justify-between px-4 py-3 border-b border-ink-500/70">
               <p className="font-extrabold text-sm">{t.notifications.title}</p>
               {unreadCount > 0 && (
                 <button
@@ -115,7 +115,7 @@ export default function NotificationBell() {
                 </button>
               )}
             </div>
-            <div className="min-h-0 overflow-y-auto overscroll-contain">
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain [webkit-overflow-scrolling:touch]">
               {error ? (
                 <div className="p-5 text-center">
                   <p className="text-sm text-red-300">{t.notifications.loadFailed}</p>
@@ -146,7 +146,7 @@ export default function NotificationBell() {
                 ))
               )}
             </div>
-            <div className="border-t border-ink-500/70 p-2">
+            <div className="shrink-0 border-t border-ink-500/70 p-2">
               <p className="px-2 pb-2 text-[10px] leading-relaxed text-slate-500">
                 {t.notifications.backgroundHint}
               </p>
