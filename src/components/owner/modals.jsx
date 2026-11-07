@@ -29,8 +29,10 @@ export function useDayBookings(iso, enabled = true) {
 
 /** 2) Accept with a modified date/time (the client must then confirm). */
 export function ModifiedTimeModal({ open, onClose, booking, settings, onConfirm }) {
-  const [date, setDate] = useState(booking?.proposedDate || booking?.date || todayISO());
-  const [time, setTime] = useState(booking?.proposedTime || '');
+  const [date, setDate] = useState(
+    booking?.clientProposedDate || booking?.proposedDate || booking?.date || todayISO()
+  );
+  const [time, setTime] = useState(booking?.clientProposedTime || booking?.proposedTime || '');
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const { data: dayBookings, loading } = useDayBookings(date, open);
@@ -38,8 +40,8 @@ export function ModifiedTimeModal({ open, onClose, booking, settings, onConfirm 
 
   useEffect(() => {
     if (open) {
-      setDate(booking?.proposedDate || booking?.date || todayISO());
-      setTime(booking?.proposedTime || '');
+      setDate(booking?.clientProposedDate || booking?.proposedDate || booking?.date || todayISO());
+      setTime(booking?.clientProposedTime || booking?.proposedTime || '');
       setNote('');
     }
     // Reset only when the modal opens (or for a different booking): Firestore

@@ -433,6 +433,28 @@ service cloud.firestore {
                 'updatedAt'
               ])
             )
+
+            ||
+
+            // (5) اقتراح موعد بديل رداً على تعديل الحلاق.
+            (
+              old.status == 'accepted_modified'
+              && d.status == 'pending'
+              && isDate(old.proposedDate)
+              && isTime(old.proposedTime)
+              && d.proposedDate == null
+              && d.proposedTime == null
+              && isDate(d.clientProposedDate)
+              && isTime(d.clientProposedTime)
+              && changed.hasOnly([
+                'status',
+                'proposedDate',
+                'proposedTime',
+                'clientProposedDate',
+                'clientProposedTime',
+                'updatedAt'
+              ])
+            )
           );
       }
 

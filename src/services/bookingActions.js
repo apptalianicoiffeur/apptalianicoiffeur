@@ -134,6 +134,8 @@ export async function clientProposeTime(booking, { date, time }, settings) {
     status: STATUS.PENDING,
     clientProposedDate: date,
     clientProposedTime: time,
+    proposedDate: null,
+    proposedTime: null,
   });
   await notifyOwner(
     settings,
@@ -169,8 +171,41 @@ export async function clientCancelBooking(booking, settings) {
 
 /** 1) Accept at the requested time. */
 export async function ownerAccept(booking, settings) {
-  await updateBooking(booking.id, { status: STATUS.ACCEPTED, barberMessage: '' });
-  const vars = varsFor(booking, settings);
+  const hasClientProposal = Boolean(booking.clientProposedDate && booking.clientProposedTime);
+  const acceptedBooking = hasClientProposal
+    ? {
+        ...booking,
+        date: booking.clientProposedDate,
+        scheduledStart: booking.clientProposedTime,
+        scheduledEnd: addMinutes(booking.clientProposedTime, booking.durationMinutes || 30),
+        expectedStart: booking.clientProposedTime,
+        expectedEnd: addMinutes(booking.clientProposedTime, booking.durationMinutes || 30),
+      }
+    : booking;
+  if (hasClientProposal) {
+    await assertSlotFree(
+      acceptedBooking.date,
+      acceptedBooking.scheduledStart,
+      booking.durationMinutes || 30,
+      booking.id
+    );
+  }
+  await updateBooking(booking.id, {
+    status: STATUS.ACCEPTED,
+    ...(hasClientProposal
+      ? {
+          date: acceptedBooking.date,
+          scheduledStart: acceptedBooking.scheduledStart,
+          scheduledEnd: acceptedBooking.scheduledEnd,
+          expectedStart: acceptedBooking.expectedStart,
+          expectedEnd: acceptedBooking.expectedEnd,
+          clientProposedDate: null,
+          clientProposedTime: null,
+        }
+      : {}),
+    barberMessage: '',
+  });
+  const vars = varsFor(acceptedBooking, settings);
   await notifyUser({
     uid: booking.userId,
     bookingId: booking.id,
@@ -185,6 +220,8 @@ export async function ownerAcceptModified(booking, { date, time, note = '' }, se
     status: STATUS.ACCEPTED_MODIFIED,
     proposedDate: date,
     proposedTime: time,
+    clientProposedDate: null,
+    clientProposedTime: null,
     barberMessage: note,
   });
   const vars = varsFor({ ...booking, proposedDate: date, proposedTime: time }, settings);
@@ -202,7 +239,12 @@ export async function ownerAcceptModified(booking, { date, time, note = '' }, se
 
 /** 3) Decline with an optional reason. */
 export async function ownerDecline(booking, reason, settings) {
-  await updateBooking(booking.id, { status: STATUS.DECLINED, barberMessage: reason || '' });
+  await updateBooking(booking.id, {
+    status: STATUS.DECLINED,
+    clientProposedDate: null,
+    clientProposedTime: null,
+    barberMessage: reason || '',
+  });
   const vars = varsFor(booking, settings);
   await notifyUser({
     uid: booking.userId,

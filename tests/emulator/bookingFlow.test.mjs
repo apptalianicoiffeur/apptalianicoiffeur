@@ -44,6 +44,7 @@ import {
   clientCancelBooking,
   clientDeclineModification,
   clientProposeTime,
+  ownerAccept,
   ownerAcceptModified,
   ownerApplyShift,
   ownerCreateWalkIn,
@@ -270,6 +271,73 @@ test('proposing another time keeps the booking date and queue entry intact', asy
     expectedStart: '10:00',
     durationMinutes: 30,
     status: 'pending',
+  });
+});
+
+test('a client can counter-propose after the owner modifies the booking time', async () => {
+  const day = '2026-12-06';
+  const ownerProposedDay = '2026-12-07';
+  const clientProposedDay = '2026-12-08';
+  await signInAsClient();
+  const id = await createBooking({ date: day, time: '10:00', userId: CLIENT_A_UID });
+
+  await signInAsOwner();
+  const created = await readBooking(id);
+  await ownerAcceptModified(
+    { id, ...created.data() },
+    { date: ownerProposedDay, time: '11:00', note: 'موعد بديل' },
+    settings
+  );
+
+  await signInAsClient();
+  const modified = await readBooking(id);
+  await clientProposeTime(
+    { id, ...modified.data() },
+    { date: clientProposedDay, time: '12:00' },
+    settings
+  );
+
+  const after = await readBooking(id);
+  assert.equal(after.data().status, 'pending');
+  assert.equal(after.data().date, day, 'the counter-proposal must not move the booking');
+  assert.equal(after.data().proposedDate, null);
+  assert.equal(after.data().proposedTime, null);
+  assert.equal(after.data().clientProposedDate, clientProposedDay);
+  assert.equal(after.data().clientProposedTime, '12:00');
+  assert.deepEqual(queueEntryOf((await readQueue(day)).data(), id), {
+    bookingId: id,
+    expectedStart: '10:00',
+    durationMinutes: 30,
+    status: 'pending',
+  });
+
+  await signInAsOwner();
+  const ownerNotifications = await readCollection('notifications');
+  assert.ok(
+    ownerNotifications.some(
+      (notification) =>
+        notification.bookingId === id &&
+        notification.userId === OWNER_UID &&
+        notification.title === 'اقتراح وقت جديد من الزبون'
+    ),
+    'the owner must receive an in-app notification for the counter-proposal'
+  );
+
+  const proposed = await readBooking(id);
+  await ownerAccept({ id, ...proposed.data() }, settings);
+  const accepted = await readBooking(id);
+  assert.equal(accepted.data().status, 'accepted');
+  assert.equal(accepted.data().date, clientProposedDay);
+  assert.equal(accepted.data().scheduledStart, '12:00');
+  assert.equal(accepted.data().expectedStart, '12:00');
+  assert.equal(accepted.data().clientProposedDate, null);
+  assert.equal(accepted.data().clientProposedTime, null);
+  assert.equal(queueEntryOf((await readQueue(day)).data(), id), null);
+  assert.deepEqual(queueEntryOf((await readQueue(clientProposedDay)).data(), id), {
+    bookingId: id,
+    expectedStart: '12:00',
+    durationMinutes: 30,
+    status: 'accepted',
   });
 });
 
