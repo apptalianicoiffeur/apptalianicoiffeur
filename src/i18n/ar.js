@@ -394,6 +394,7 @@ const t = {
     markCompleted: 'تحديد كمكتمل',
     markNoShow: 'لم يحضر',
     markCancelled: 'إلغاء الحجز',
+    cancelSession: 'إلغاء الجلسة',
     call: 'اتصال',
     whatsapp: 'واتساب',
     gapDetected: 'انتهت الجلسة قبل الوقت، يوجد فراغ',

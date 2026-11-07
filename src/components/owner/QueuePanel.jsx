@@ -10,7 +10,7 @@
  *   message is offered for each of them.
  */
 import { useEffect, useMemo, useState } from 'react';
-import { CalendarClock, CheckCircle2, Loader2, MessageCircle, PhoneCall, Play, Plus, Timer, Users, X } from 'lucide-react';
+import { CalendarClock, CheckCircle2, Loader2, MessageCircle, PhoneCall, Play, Plus, Timer, UserX, Users, X, XCircle } from 'lucide-react';
 import t from '../../i18n/ar';
 import { useSettings } from '../../context/SettingsContext';
 import { useToast } from '../../context/ToastContext';
@@ -22,6 +22,7 @@ import {
   ownerCreateWalkIn,
   ownerEndSession,
   ownerPullForward,
+  ownerSetStatus,
   ownerStartSession,
 } from '../../services/bookingActions';
 import { fillTemplate, telLink } from '../../utils/whatsapp';
@@ -279,6 +280,36 @@ export default function QueuePanel({ date, bookings, services, onChanged }) {
                       >
                         {busyId === b.id ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />}
                         {t.owner.startSession}
+                      </button>
+                      <button
+                        className="btn-danger btn-sm"
+                        disabled={busyId === b.id || Boolean(current)}
+                        onClick={() =>
+                          guard(b.id, async () => {
+                            await ownerSetStatus(b, STATUS.NO_SHOW, settings);
+                            toast(t.owner.markNoShow);
+                            onChanged?.();
+                          })
+                        }
+                        title={current ? t.owner.currentClient : undefined}
+                      >
+                        {busyId === b.id ? <Loader2 size={13} className="animate-spin" /> : <UserX size={13} />}
+                        {t.owner.markNoShow}
+                      </button>
+                      <button
+                        className="btn-ghost btn-sm"
+                        disabled={busyId === b.id || Boolean(current)}
+                        onClick={() =>
+                          guard(b.id, async () => {
+                            await ownerSetStatus(b, STATUS.CANCELLED, settings);
+                            toast(t.owner.cancelSession);
+                            onChanged?.();
+                          })
+                        }
+                        title={current ? t.owner.currentClient : undefined}
+                      >
+                        {busyId === b.id ? <Loader2 size={13} className="animate-spin" /> : <XCircle size={13} />}
+                        {t.owner.cancelSession}
                       </button>
                       <WhatsAppButton
                         booking={b}
