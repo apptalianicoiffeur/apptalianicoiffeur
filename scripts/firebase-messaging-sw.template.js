@@ -36,19 +36,24 @@ messaging.onBackgroundMessage((payload) => {
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const bookingId = event.notification?.data?.bookingId;
+  const notificationId = event.notification?.data?.notificationId;
   const target = new URL('/notification', self.location.origin);
   if (bookingId && /^[A-Za-z0-9_-]{1,60}$/.test(bookingId)) {
     target.searchParams.set('bookingId', bookingId);
   }
+  if (notificationId && /^[A-Za-z0-9_-]{1,60}$/.test(notificationId)) {
+    target.searchParams.set('notificationId', notificationId);
+  }
 
   event.waitUntil(
-    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(async (clients) => {
       const appClient = clients.find((client) => new URL(client.url).origin === self.location.origin);
       if (appClient) {
-        appClient.navigate(target.href);
-        return appClient.focus();
+        await appClient.navigate(target.href);
+        await appClient.focus();
+        return;
       }
-      return self.clients.openWindow(target.href);
+      await self.clients.openWindow(target.href);
     })
   );
 });

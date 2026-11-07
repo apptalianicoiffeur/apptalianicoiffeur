@@ -53,15 +53,18 @@ function NotificationRedirect() {
   const { user, isOwner, initializing } = useAuth();
   const [searchParams] = useSearchParams();
   const bookingId = searchParams.get('bookingId');
+  const notificationId = searchParams.get('notificationId');
 
   if (initializing) return <FullSpinner />;
   if (!user) return <Navigate to="/" replace />;
   if (!bookingId) return <Navigate to={isOwner ? '/owner/requests' : '/bookings'} replace />;
 
   const destination = isOwner ? '/owner/requests' : '/bookings';
+  const params = new URLSearchParams({ bookingId });
+  if (notificationId) params.set('notificationId', notificationId);
   return (
     <Navigate
-      to={`${destination}?bookingId=${encodeURIComponent(bookingId)}`}
+      to={`${destination}?${params.toString()}`}
       replace
     />
   );

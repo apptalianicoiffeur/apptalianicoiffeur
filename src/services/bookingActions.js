@@ -39,10 +39,15 @@ export async function getUserPushToken(uid) {
 /** Create the in-app notification + best-effort push for one user. */
 export async function notifyUser({ uid, title, body, bookingId = null, push = true }) {
   if (!uid || !title) return;
-  await createNotification({ userId: uid, bookingId, title, body });
+  const notificationId = await createNotification({ userId: uid, bookingId, title, body });
   if (push) {
     const token = await getUserPushToken(uid);
-    if (token) await sendPushToToken(token, title, body, { bookingId: bookingId || '' });
+    if (token) {
+      await sendPushToToken(token, title, body, {
+        bookingId: bookingId || '',
+        notificationId: notificationId || '',
+      });
+    }
   }
 }
 

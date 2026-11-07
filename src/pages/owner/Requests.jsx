@@ -169,7 +169,8 @@ export default function Requests() {
   const [search, setSearch] = useState('');
   const [searchParams] = useSearchParams();
   const bookingId = searchParams.get('bookingId');
-  const { items: notifications, markBookingRead } = useNotifications();
+  const notificationId = searchParams.get('notificationId');
+  const { items: notifications, markBookingRead, markOne } = useNotifications();
   const markedBookingRef = useRef(null);
 
   const { data: bookings, loading, error } = useCollection(
@@ -196,14 +197,30 @@ export default function Requests() {
   }, [bookingId]);
 
   useEffect(() => {
-    if (!bookingId || markedBookingRef.current === bookingId) return;
+    if (!bookingId) return;
+    const targetNotification = notificationId
+      ? notifications.find(
+          (item) => item.id === notificationId && item.bookingId === bookingId
+        )
+      : null;
+    const key = targetNotification ? `notification:${targetNotification.id}` : `booking:${bookingId}`;
+    if (markedBookingRef.current === key) return;
+    if (targetNotification) {
+      if (targetNotification.read) return;
+      markedBookingRef.current = key;
+      markOne(targetNotification.id).catch((err) => {
+        markedBookingRef.current = null;
+        console.error('Failed to mark notification as read.', err);
+      });
+      return;
+    }
     if (!notifications.some((item) => item.bookingId === bookingId && !item.read)) return;
-    markedBookingRef.current = bookingId;
+    markedBookingRef.current = key;
     markBookingRead(bookingId).catch((err) => {
       markedBookingRef.current = null;
       console.error('Failed to mark booking notifications as read.', err);
     });
-  }, [bookingId, notifications, markBookingRead]);
+  }, [bookingId, notificationId, notifications, markBookingRead, markOne]);
 
   const list = useMemo(() => {
     const q = search.trim().toLowerCase();
