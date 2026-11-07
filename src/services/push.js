@@ -15,7 +15,10 @@ import { COLLECTIONS } from '../utils/constants';
  * Register the service worker and save the FCM token. Permission prompts are
  * only requested from an explicit user action.
  */
-export async function registerPushToken(uid, { requestPermission = false } = {}) {
+export async function registerPushToken(
+  uid,
+  { requestPermission = false, existingToken = '' } = {}
+) {
   if (typeof Notification === 'undefined' || !('serviceWorker' in navigator)) {
     throw new Error('Push notifications are not supported in this browser.');
   }
@@ -34,7 +37,9 @@ export async function registerPushToken(uid, { requestPermission = false } = {})
     serviceWorkerRegistration: reg,
   });
   if (!token) throw new Error('Firebase Messaging did not return a registration token.');
-  if (uid) await updateDoc(doc(db, COLLECTIONS.USERS, uid), { fcmToken: token });
+  if (uid && token !== existingToken) {
+    await updateDoc(doc(db, COLLECTIONS.USERS, uid), { fcmToken: token });
+  }
   return token;
 }
 

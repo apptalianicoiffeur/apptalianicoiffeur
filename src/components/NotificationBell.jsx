@@ -26,7 +26,10 @@ export default function NotificationBell() {
     if (registeringPush) return;
     setRegisteringPush(true);
     try {
-      const token = await registerPushToken(user.uid, { requestPermission: true });
+      const token = await registerPushToken(user.uid, {
+        requestPermission: true,
+        existingToken: profile?.fcmToken || '',
+      });
       if (token) {
         toast(t.notifications.pushEnabled);
       } else if (typeof Notification !== 'undefined' && Notification.permission === 'denied') {
@@ -132,6 +135,9 @@ export default function NotificationBell() {
               )}
             </div>
             <div className="border-t border-ink-500/70 p-2">
+              <p className="px-2 pb-2 text-[10px] leading-relaxed text-slate-500">
+                {t.notifications.backgroundHint}
+              </p>
               <button
                 onClick={enablePush}
                 disabled={registeringPush}

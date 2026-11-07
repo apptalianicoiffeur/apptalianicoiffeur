@@ -2,7 +2,7 @@
  * Authentication context: Google and email/password sign-in, the user's
  * Firestore profile, and verified owner-role detection.
  */
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
   createUserWithEmailAndPassword,
   EmailAuthProvider,
@@ -63,6 +63,7 @@ export function AuthProvider({ children }) {
   const [initializing, setInitializing] = useState(true);
   const [signingIn, setSigningIn] = useState(false);
   const [profileSync, setProfileSync] = useState(null);
+  const pushRegisteredUid = useRef('');
   // Set when the app must re-open the phone dialog (e.g. booking without a phone).
   const [phonePrompt, setPhonePrompt] = useState(false);
 
@@ -143,21 +144,26 @@ export function AuthProvider({ children }) {
     );
   }, [user, isOwner, profileSync]);
 
-  // Save the FCM token for push notifications (best effort).
+  // Refresh the device's FCM token once per signed-in session.
   useEffect(() => {
     if (
       !user ||
       !profile ||
-      profile.fcmToken ||
       typeof Notification === 'undefined' ||
       Notification.permission !== 'granted'
     ) {
+      if (!user) pushRegisteredUid.current = '';
       return;
     }
-    registerPushToken(user.uid).catch((err) => {
-      console.error('Failed to register the push notification token.', err);
+    if (pushRegisteredUid.current === user.uid) return;
+    pushRegisteredUid.current = user.uid;
+    registerPushToken(user.uid, { existingToken: profile.fcmToken || '' }).catch((err) => {
+      if (pushRegisteredUid.current === user.uid) {
+        pushRegisteredUid.current = '';
+        console.error('Failed to register the push notification token.', err);
+      }
     });
-  }, [user, profile]);
+  }, [user?.uid, profile?.id, profile?.fcmToken]);
 
   /** Sign in with Google (popup). Returns { ok, error? } with an Arabic message. */
   const signInWithGoogle = useCallback(async () => {
