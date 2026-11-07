@@ -21,8 +21,10 @@ export function buildPrayerBreaks(timings, settings) {
   return PRAYER_NAMES.flatMap((prayer) => {
     const prayerMinute = timeToMinutes(timings?.[prayer]);
     if (prayerMinute === null) return [];
-    const start = Math.max(0, prayerMinute - settings.beforeMinutes);
-    const end = Math.min(1440, prayerMinute + settings.afterMinutes);
+    const adjustment = Number(settings.adjustments?.[prayer]) || 0;
+    const adjustedPrayerMinute = prayerMinute + adjustment;
+    const start = Math.max(0, adjustedPrayerMinute - settings.beforeMinutes);
+    const end = Math.min(1440, adjustedPrayerMinute + settings.afterMinutes);
     if (start >= end) return [];
     return [{ prayer, start: minutesToTime(start), end: minutesToTime(end) }];
   });

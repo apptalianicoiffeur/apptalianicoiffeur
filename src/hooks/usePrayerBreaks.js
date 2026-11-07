@@ -8,7 +8,7 @@ export function usePrayerBreaks(settings, dates, enabled = true) {
     [Array.isArray(dates) ? dates.join(',') : dates]
   );
   const prayerSettings = settings.prayerBreakSettings;
-  const locationKey = `${prayerSettings?.city || ''}|${prayerSettings?.country || ''}|${prayerSettings?.beforeMinutes}|${prayerSettings?.afterMinutes}`;
+  const locationKey = JSON.stringify(prayerSettings);
   const active = enabled && Boolean(prayerSettings?.enabled);
   const [result, setResult] = useState({ datesKey: '', locationKey: '', windows: {}, loading: false, error: null });
 

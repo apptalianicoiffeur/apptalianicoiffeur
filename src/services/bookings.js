@@ -74,9 +74,9 @@ export class PrayerSettingsChangedError extends Error {
 }
 
 function samePrayerSettings(left, right) {
-  return ['enabled', 'city', 'country', 'beforeMinutes', 'afterMinutes'].every(
+  return ['enabled', 'city', 'country', 'latitude', 'longitude', 'method', 'school', 'beforeMinutes', 'afterMinutes'].every(
     (key) => left?.[key] === right?.[key]
-  );
+  ) && JSON.stringify(left?.adjustments || {}) === JSON.stringify(right?.adjustments || {});
 }
 
 /** Thrown when the booking id does not exist (update/delete of a ghost). */

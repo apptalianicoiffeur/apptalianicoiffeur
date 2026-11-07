@@ -120,15 +120,42 @@ export default function SettingsPage() {
   };
 
   const savePrayerSettings = async () => {
+    const latitude = String(prayerSettings.latitude ?? '').trim();
+    const longitude = String(prayerSettings.longitude ?? '').trim();
     const next = {
       ...prayerSettings,
       city: prayerSettings.city.trim(),
       country: prayerSettings.country.trim(),
+      latitude,
+      longitude,
+      method: prayerSettings.method === '' ? '' : Number(prayerSettings.method),
+      school: Number(prayerSettings.school),
       beforeMinutes: Number(prayerSettings.beforeMinutes),
       afterMinutes: Number(prayerSettings.afterMinutes),
+      adjustments: Object.fromEntries(
+        Object.entries(prayerSettings.adjustments).map(([prayer, minutes]) => [prayer, Number(minutes)])
+      ),
     };
-    if (next.enabled && (!next.city || !next.country)) {
+    const hasLatitude = Boolean(latitude);
+    const hasLongitude = Boolean(longitude);
+    if (next.enabled && hasLatitude !== hasLongitude) {
+      setPrayerError(t.owner.prayerCoordinatesPair);
+      return;
+    }
+    if (next.enabled && !hasLatitude && (!next.city || !next.country)) {
       setPrayerError(t.owner.prayerLocationRequired);
+      return;
+    }
+    if (next.enabled && hasLatitude && !next.country && !next.method) {
+      setPrayerError(t.owner.prayerCountryRequired);
+      return;
+    }
+    if (
+      hasLatitude &&
+      (!Number.isFinite(Number(latitude)) || Number(latitude) < -90 || Number(latitude) > 90 ||
+        !Number.isFinite(Number(longitude)) || Number(longitude) < -180 || Number(longitude) > 180)
+    ) {
+      setPrayerError(t.owner.prayerCoordinatesInvalid);
       return;
     }
     if (
@@ -140,6 +167,14 @@ export default function SettingsPage() {
       next.afterMinutes > 120
     ) {
       setPrayerError(t.owner.prayerMinutesInvalid);
+      return;
+    }
+    if (
+      Object.values(next.adjustments).some(
+        (minutes) => !Number.isInteger(minutes) || minutes < -120 || minutes > 120
+      )
+    ) {
+      setPrayerError(t.owner.prayerAdjustmentInvalid);
       return;
     }
 
@@ -228,6 +263,66 @@ export default function SettingsPage() {
               </Field>
             </div>
 
+            <p className="text-[11px] text-slate-500 -mt-2 mb-4">{t.owner.prayerCoordinatesHint}</p>
+            <div className="grid sm:grid-cols-2 gap-3">
+              <Field label={t.owner.prayerLatitude}>
+                <input
+                  className="input"
+                  type="number"
+                  min="-90"
+                  max="90"
+                  step="any"
+                  dir="ltr"
+                  inputMode="decimal"
+                  value={prayerSettings.latitude}
+                  onChange={(e) => setPrayerSettings((draft) => ({ ...draft, latitude: e.target.value }))}
+                />
+              </Field>
+              <Field label={t.owner.prayerLongitude}>
+                <input
+                  className="input"
+                  type="number"
+                  min="-180"
+                  max="180"
+                  step="any"
+                  dir="ltr"
+                  inputMode="decimal"
+                  value={prayerSettings.longitude}
+                  onChange={(e) => setPrayerSettings((draft) => ({ ...draft, longitude: e.target.value }))}
+                />
+              </Field>
+            </div>
+
+            <div className="grid sm:grid-cols-2 gap-3">
+              <Field label={t.owner.prayerMethod}>
+                <select
+                  className="input"
+                  value={prayerSettings.method}
+                  onChange={(e) => setPrayerSettings((draft) => ({ ...draft, method: e.target.value }))}
+                >
+                  <option value="">{t.owner.prayerMethodAuto}</option>
+                  <option value="19">{t.owner.prayerMethodAlgeria}</option>
+                  <option value="18">{t.owner.prayerMethodTunisia}</option>
+                  <option value="21">{t.owner.prayerMethodMorocco}</option>
+                  <option value="12">{t.owner.prayerMethodFrance}</option>
+                  <option value="3">{t.owner.prayerMethodMwl}</option>
+                  <option value="2">{t.owner.prayerMethodIsna}</option>
+                  <option value="4">{t.owner.prayerMethodUmmAlQura}</option>
+                  <option value="5">{t.owner.prayerMethodEgypt}</option>
+                  <option value="1">{t.owner.prayerMethodKarachi}</option>
+                </select>
+              </Field>
+              <Field label={t.owner.prayerSchool}>
+                <select
+                  className="input"
+                  value={prayerSettings.school}
+                  onChange={(e) => setPrayerSettings((draft) => ({ ...draft, school: Number(e.target.value) }))}
+                >
+                  <option value="0">{t.owner.prayerSchoolStandard}</option>
+                  <option value="1">{t.owner.prayerSchoolHanafi}</option>
+                </select>
+              </Field>
+            </div>
             <p className="text-[11px] text-slate-500 -mt-2 mb-4">{t.owner.prayerCalculationHint}</p>
             <div className="grid sm:grid-cols-2 gap-3">
               <Field label={t.owner.prayerBefore}>
@@ -252,6 +347,34 @@ export default function SettingsPage() {
                   onChange={(e) => setPrayerSettings((draft) => ({ ...draft, afterMinutes: e.target.value }))}
                 />
               </Field>
+            </div>
+            <p className="text-xs font-bold text-slate-300 mb-2">{t.owner.prayerAdjustments}</p>
+            <p className="text-[11px] text-slate-500 mb-3">{t.owner.prayerAdjustmentsHint}</p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {[
+                ['Fajr', t.owner.prayerFajr],
+                ['Dhuhr', t.owner.prayerDhuhr],
+                ['Asr', t.owner.prayerAsr],
+                ['Maghrib', t.owner.prayerMaghrib],
+                ['Isha', t.owner.prayerIsha],
+              ].map(([prayer, label]) => (
+                <Field key={prayer} label={label}>
+                  <input
+                    className="input"
+                    type="number"
+                    min="-120"
+                    max="120"
+                    step="1"
+                    value={prayerSettings.adjustments[prayer]}
+                    onChange={(e) =>
+                      setPrayerSettings((draft) => ({
+                        ...draft,
+                        adjustments: { ...draft.adjustments, [prayer]: e.target.value },
+                      }))
+                    }
+                  />
+                </Field>
+              ))}
             </div>
           </>
         )}

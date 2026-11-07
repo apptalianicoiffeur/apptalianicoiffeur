@@ -24,8 +24,19 @@ export const DEFAULT_SETTINGS = {
     enabled: false,
     city: '',
     country: 'Algeria',
+    latitude: '',
+    longitude: '',
+    method: '',
+    school: 0,
     beforeMinutes: 5,
     afterMinutes: 15,
+    adjustments: {
+      Fajr: 0,
+      Dhuhr: 0,
+      Asr: 0,
+      Maghrib: 0,
+      Isha: 0,
+    },
   },
   slotInterval: 30,
   maxAdvanceDays: 14,
@@ -57,8 +68,18 @@ export function withDefaults(settings) {
     enabled: Boolean(prayerSettings.enabled),
     city: typeof prayerSettings.city === 'string' ? prayerSettings.city : '',
     country: typeof prayerSettings.country === 'string' ? prayerSettings.country : 'Algeria',
+    latitude: prayerSettings.latitude == null ? '' : String(prayerSettings.latitude),
+    longitude: prayerSettings.longitude == null ? '' : String(prayerSettings.longitude),
+    method: prayerSettings.method === '' || prayerSettings.method == null ? '' : String(prayerSettings.method),
+    school: prayerSettings.school === 1 || prayerSettings.school === '1' ? 1 : 0,
     beforeMinutes: boundedMinutes(prayerSettings.beforeMinutes, 5),
     afterMinutes: boundedMinutes(prayerSettings.afterMinutes, 15),
+    adjustments: Object.fromEntries(
+      Object.keys(DEFAULT_SETTINGS.prayerBreakSettings.adjustments).map((prayer) => {
+        const adjustment = Number(prayerSettings.adjustments?.[prayer]);
+        return [prayer, Number.isFinite(adjustment) ? Math.min(120, Math.max(-120, Math.round(adjustment))) : 0];
+      })
+    ),
   };
   return s;
 }
