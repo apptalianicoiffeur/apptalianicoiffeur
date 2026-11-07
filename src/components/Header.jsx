@@ -2,7 +2,7 @@
  * Client header: logo, live shop status, desktop nav links, notification bell
  * and the account menu.
  */
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Link, NavLink } from 'react-router-dom';
 import {
   ClipboardList,
@@ -30,13 +30,14 @@ function UserMenu({ onLinkPassword }) {
   const { user, profile, isOwner, signingIn, linkGoogle, signOut } = useAuth();
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
-  useOutsideClose(open, () => setOpen(false));
+  const menuRef = useRef(null);
+  useOutsideClose(open, () => setOpen(false), menuRef);
   const initial = (profile?.name || user?.displayName || user?.email || '?').trim().charAt(0);
   const hasPassword = user?.providerData.some((provider) => provider.providerId === 'password');
   const hasGoogle = user?.providerData.some((provider) => provider.providerId === 'google.com');
 
   return (
-    <div className="relative">
+    <div ref={menuRef} className="relative">
       <button
         onClick={() => setOpen((o) => !o)}
         className="w-10 h-10 rounded-xl bg-gradient-to-b from-gold-400 to-gold-600 text-ink-950 font-extrabold flex items-center justify-center"
@@ -46,7 +47,11 @@ function UserMenu({ onLinkPassword }) {
       </button>
       {open && (
         <>
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div
+            className="fixed inset-0 z-40"
+            onPointerDown={() => setOpen(false)}
+            onClick={() => setOpen(false)}
+          />
           <div className="absolute z-50 left-0 mt-2 w-64 card overflow-hidden animate-pop">
             <div className="px-4 py-3 border-b border-ink-500/70">
               <p className="text-sm font-extrabold text-slate-100 truncate">

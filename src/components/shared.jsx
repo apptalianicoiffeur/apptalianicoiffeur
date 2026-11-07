@@ -431,13 +431,20 @@ export function RequireOwner({ children }) {
 }
 
 /** Auto-close helper used by dropdown menus. */
-export function useOutsideClose(open, onClose) {
+export function useOutsideClose(open, onClose, containerRef) {
   useEffect(() => {
     if (!open) return undefined;
     const onKey = (e) => e.key === 'Escape' && onClose?.();
+    const onPointerDown = (event) => {
+      if (!containerRef?.current?.contains(event.target)) onClose?.();
+    };
     document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
+    document.addEventListener('pointerdown', onPointerDown, true);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('pointerdown', onPointerDown, true);
+    };
+  }, [open, onClose, containerRef]);
 }
 
 /** Small helper to redirect home after finishing a flow. */

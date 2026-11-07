@@ -2,7 +2,7 @@
  * In-app notification center (bell + unread badge), driven by Firestore
  * real-time listeners so it works instantly and for free.
  */
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Bell, BellRing, CheckCheck } from 'lucide-react';
 import t from '../i18n/ar';
@@ -20,7 +20,8 @@ export default function NotificationBell() {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [registeringPush, setRegisteringPush] = useState(false);
-  useOutsideClose(open, () => setOpen(false));
+  const menuRef = useRef(null);
+  useOutsideClose(open, () => setOpen(false), menuRef);
 
   const enablePush = async () => {
     if (registeringPush) return;
@@ -79,7 +80,7 @@ export default function NotificationBell() {
   };
 
   return (
-    <div className="relative">
+    <div ref={menuRef} className="relative">
       <button
         onClick={() => setOpen((o) => !o)}
         className="relative p-2.5 rounded-xl text-slate-300 hover:bg-ink-600 hover:text-white transition-colors"
@@ -95,7 +96,11 @@ export default function NotificationBell() {
 
       {open && (
         <>
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div
+            className="fixed inset-0 z-40"
+            onPointerDown={() => setOpen(false)}
+            onClick={() => setOpen(false)}
+          />
           <div
             className="fixed inset-x-0 top-[calc(env(safe-area-inset-top)_+_4.5rem)] z-50 mx-auto flex w-[calc(100vw-1.5rem)] max-w-sm flex-col overflow-hidden card animate-pop sm:absolute sm:inset-x-auto sm:left-0 sm:top-auto sm:mx-0 sm:mt-2 sm:w-[86vw]"
             style={{
