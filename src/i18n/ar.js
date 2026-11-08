@@ -209,6 +209,8 @@ const t = {
     viewGuestBooking: 'فتح صفحة متابعة الحجز',
     guestTrackCopied: 'تم نسخ رابط المتابعة.',
     guestTrackCopyFailed: 'تعذر نسخ الرابط. افتح صفحة المتابعة واحفظ عنوانها.',
+    bookingCodeCopied: 'تم نسخ رقم الحجز.',
+    bookingCodeCopyFailed: 'تعذر نسخ رقم الحجز.',
     backToHome: 'العودة للرئيسية',
     bookAnother: 'حجز موعد آخر',
     goToMyBookings: 'عرض حجوزاتي',

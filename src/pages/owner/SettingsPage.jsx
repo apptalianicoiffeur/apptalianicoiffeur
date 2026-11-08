@@ -32,6 +32,7 @@ const PLACEHOLDERS = [
   '{old_time}',
   '{shop_name}',
   '{price}',
+  '{tracking_url}',
 ];
 
 const PRAYER_OPTIONS = [
@@ -158,6 +159,7 @@ export default function SettingsPage() {
       ...templateVars(SAMPLE, { shopNameAr: shop.shopNameAr }),
       date: formatDateLong(SAMPLE.date),
       new_date: formatDateLong(SAMPLE.proposedDate),
+      tracking_url: `${window.location.origin}/track?bookingId=sample#token=${'a'.repeat(64)}`,
     }),
     [shop.shopNameAr]
   );

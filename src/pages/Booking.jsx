@@ -223,9 +223,22 @@ export default function Booking() {
             {!user && (
               <div className="flex justify-between gap-3 items-center border-t border-ink-500/50 pt-2">
                 <span className="text-xs text-slate-400">{t.guestBooking.bookingCode}</span>
-                <span className="font-mono font-black tracking-widest text-gold-300" dir="ltr">
+                <button
+                  type="button"
+                  className="font-mono font-black tracking-widest text-gold-300 hover:text-gold-200 underline decoration-dotted underline-offset-4"
+                  dir="ltr"
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(done.code);
+                      toast(t.booking.bookingCodeCopied);
+                    } catch (err) {
+                      console.error('Failed to copy the guest booking code.', err);
+                      toast(t.booking.bookingCodeCopyFailed, 'error');
+                    }
+                  }}
+                >
                   {done.code}
-                </span>
+                </button>
               </div>
             )}
           </div>
