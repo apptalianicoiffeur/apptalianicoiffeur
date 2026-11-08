@@ -37,9 +37,12 @@ export const TEMPLATE_KEYS = ['accept', 'decline', 'acceptModified', 'delay'];
 
 /** Replace {placeholder} tokens with real values (unknown tokens are left as-is). */
 export function fillTemplate(template, vars = {}) {
-  return String(template || '').replace(/\{(\w+)\}/g, (match, key) =>
-    vars[key] !== undefined && vars[key] !== null && vars[key] !== '' ? String(vars[key]) : match
-  );
+  return String(template || '').replace(/\{(\w+)\}/g, (match, key) => {
+    if (!Object.prototype.hasOwnProperty.call(vars, key) || vars[key] === null || vars[key] === undefined) {
+      return match;
+    }
+    return String(vars[key]);
+  });
 }
 
 /** Build the variables used by all templates from a booking + settings. */

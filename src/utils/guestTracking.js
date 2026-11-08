@@ -16,3 +16,13 @@ export function guestTrackingUrl(booking, origin = window.location.origin) {
   const path = guestTrackingPath(booking);
   return path ? new URL(path, origin).href : null;
 }
+
+export function bookingTrackingUrl(booking, origin = window.location.origin) {
+  const guestUrl = guestTrackingUrl(booking, origin);
+  if (guestUrl) return guestUrl;
+  if (!booking?.id || !booking.userId) return null;
+
+  const url = new URL('/bookings', origin);
+  url.searchParams.set('bookingId', booking.id);
+  return url.href;
+}

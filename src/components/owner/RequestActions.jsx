@@ -15,7 +15,7 @@ import {
 } from '../../services/bookingActions';
 import { fillTemplate, openWhatsApp, telLink, templateVars, waLink } from '../../utils/whatsapp';
 import { formatDateLong } from '../../utils/datetime';
-import { guestTrackingUrl } from '../../utils/guestTracking';
+import { bookingTrackingUrl } from '../../utils/guestTracking';
 import { DeclineModal, ModifiedTimeModal } from './modals';
 
 export default function RequestActions({ booking, onChanged, size = 'sm' }) {
@@ -29,13 +29,13 @@ export default function RequestActions({ booking, onChanged, size = 'sm' }) {
 
   const guard = async (fn, message, whatsapp = null) => {
     if (busy) return;
-    const whatsappWindow = whatsapp && guestTrackingUrl(booking) ? window.open('about:blank', '_blank') : null;
+    const whatsappWindow = whatsapp && bookingTrackingUrl(booking) ? window.open('about:blank', '_blank') : null;
     setBusy(true);
     try {
       await fn();
       if (message) toast(message);
       if (whatsapp) {
-        const url = guestTrackingUrl(booking);
+        const url = bookingTrackingUrl(booking);
         const text = waText(whatsapp.templateKey, {
           ...whatsapp.extraVars,
           tracking_url: url || '',
@@ -73,7 +73,7 @@ export default function RequestActions({ booking, onChanged, size = 'sm' }) {
     });
 
   const sendWa = (key, extra) => {
-    const url = guestTrackingUrl(booking);
+    const url = bookingTrackingUrl(booking);
     const text = waText(key, { ...extra, tracking_url: url || '' });
     const withLink =
       url && !templates[key]?.includes('{tracking_url}')
@@ -175,7 +175,7 @@ export default function RequestActions({ booking, onChanged, size = 'sm' }) {
 export function WhatsAppButton({ booking, templateKey = 'accept', label, extraVars = {} }) {
   const { settings, templates } = useSettings();
   const { toast } = useToast();
-  const trackingUrl = guestTrackingUrl(booking);
+  const trackingUrl = bookingTrackingUrl(booking);
   const text = fillTemplate(templates[templateKey], {
     ...templateVars(booking, settings),
     date: formatDateLong(booking.date),

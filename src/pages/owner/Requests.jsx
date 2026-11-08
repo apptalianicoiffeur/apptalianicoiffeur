@@ -23,7 +23,7 @@ import { useCollection, useDocument } from '../../hooks/useCollection';
 import { STATUS } from '../../utils/constants';
 import { addDays, formatDateLong, formatRelative, todayISO } from '../../utils/datetime';
 import { openWhatsApp, telLink, fillTemplate, templateVars } from '../../utils/whatsapp';
-import { guestTrackingUrl } from '../../utils/guestTracking';
+import { bookingTrackingUrl } from '../../utils/guestTracking';
 import { ownerSetStatus } from '../../services/bookingActions';
 import RequestActions from '../../components/owner/RequestActions';
 import { EmptyState, ErrorState, FullSpinner, Spinner, StatusChip } from '../../components/ui';
@@ -56,7 +56,7 @@ function AcceptedActions({ booking, onChanged }) {
 
   const wa = () => {
     const key = booking.status === STATUS.ACCEPTED_MODIFIED ? 'acceptModified' : 'accept';
-    const trackingUrl = guestTrackingUrl(booking);
+    const trackingUrl = bookingTrackingUrl(booking);
     const text = fillTemplate(templates[key], {
       ...templateVars(booking, settings),
       date: formatDateLong(booking.date),
