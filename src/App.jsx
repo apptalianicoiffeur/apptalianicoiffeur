@@ -11,6 +11,7 @@ import { SettingsIcon } from 'lucide-react';
 import t from './i18n/ar';
 import { isFirebaseConfigured } from './config/firebase';
 import { ToastProvider } from './context/ToastContext';
+import InstallPrompt from './components/InstallPrompt';
 import { AuthProvider } from './context/AuthContext';
 import { SettingsProvider } from './context/SettingsContext';
 import { NotificationsProvider } from './context/NotificationsContext';
@@ -76,6 +77,7 @@ export default function App() {
   return (
     <ThemeProvider>
       <ToastProvider>
+        <InstallPrompt />
         <AuthProvider>
           <SettingsProvider>
             <NotificationsProvider>
